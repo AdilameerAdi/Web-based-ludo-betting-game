@@ -12,6 +12,11 @@ import adminRoutes from './routes/adminRoutes.js';
 import { testConnection } from './config/supabase.js';
 import morgan from 'morgan';
 
+// Import game engine
+import GameManager from './game/gameManager.js';
+import { registerGameHandlers, initializeGame } from './game/handlers/gameHandlers.js';
+import { PLAYER_CONFIG } from './game/utils/constants.js';
+
 // Load environment variables
 dotenv.config();
 
@@ -24,13 +29,16 @@ const io = new Server(httpServer, {
   }
 });
 
+// Store io globally for game manager timer callbacks
+global.io = io;
+
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan())
+app.use(morgan('dev'));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -59,6 +67,9 @@ const matchingLocks = new Map();
 // Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
+
+  // Register game handlers for this socket
+  registerGameHandlers(io, socket);
 
   // Join waiting room to receive table updates
   socket.on('join_waiting_room', () => {
@@ -99,9 +110,9 @@ io.on('connection', (socket) => {
       players: [tableData.creatorId],
       status: 'waiting'
     };
-    
+
     activeTables.set(tableId, table);
-    
+
     // Set 5-minute timeout to return balance if no one joins
     const timeout = setTimeout(async () => {
       const currentTable = activeTables.get(tableId);
@@ -114,14 +125,14 @@ io.on('connection', (socket) => {
             .select('balance')
             .eq('id', currentTable.creatorId)
             .single();
-          
+
           if (userData) {
             const newBalance = (userData.balance || 0) + currentTable.betAmount;
             const { error } = await supabase
               .from('users')
               .update({ balance: newBalance })
               .eq('id', currentTable.creatorId);
-            
+
             if (!error) {
               // Remove table
               activeTables.delete(tableId);
@@ -136,12 +147,12 @@ io.on('connection', (socket) => {
       }
       tableTimeouts.delete(tableId);
     }, 5 * 60 * 1000); // 5 minutes
-    
+
     tableTimeouts.set(tableId, timeout);
-    
+
     // Notify all users in waiting room
     io.to('waiting_room').emit('table_created', table);
-    
+
     // Confirm to creator
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     socket.emit('table_created_success', { table, tableLink: `${frontendUrl}/table/${tableId}` });
@@ -155,16 +166,16 @@ io.on('connection', (socket) => {
       // Join the socket room for game events
       socket.join(`table_${tableId}`);
       console.log(`Socket ${socket.id} joined table room: table_${tableId} for user ${userId}`);
-      
+
       if (table.status === 'waiting' && table.players.length < 2 && !table.players.includes(userId)) {
         // Clear timeout since someone joined
         if (tableTimeouts.has(tableId)) {
           clearTimeout(tableTimeouts.get(tableId));
           tableTimeouts.delete(tableId);
         }
-        
+
         table.players.push(userId);
-        
+
         // If table is now full (2 players), remove it from waiting room
         if (table.players.length >= 2) {
           // Update table status in database
@@ -177,23 +188,83 @@ io.on('connection', (socket) => {
           } catch (err) {
             console.error('Error updating table status:', err);
           }
-          
+
           // Remove from waiting room
           io.to('waiting_room').emit('table_removed', { tableId });
-          
+
           // Notify table room that it's ready
           io.to(`table_${tableId}`).emit('table_ready', table);
         } else {
           // Notify all users in waiting room about the update
           io.to('waiting_room').emit('table_updated', table);
         }
-        
+
         // Notify table room
         io.to(`table_${tableId}`).emit('player_joined', { table, userId });
-      } else if (table.status === 'active' && table.players.includes(userId)) {
-        // Player is rejoining an active game - just confirm they're in the room
-        console.log(`Player ${userId} rejoined active table ${tableId}`);
+      } else if (table.status === 'active') {
+        // Player is rejoining an active game - check if they're a player
+        const isPlayer = table.players.includes(userId);
+        console.log(`Player ${userId} trying to join active table ${tableId}. Is player: ${isPlayer}`);
+        console.log(`Table players: ${JSON.stringify(table.players)}, userId: ${userId}`);
+
+        if (!isPlayer) {
+          console.log(`User ${userId} is not a player in table ${tableId}`);
+          socket.emit('join_error', { message: 'You are not a player in this game' });
+          return;
+        }
+
         socket.emit('table_joined', { table, userId });
+
+        // Check if there's an active game for this table
+        const game = GameManager.getGameByTableId(tableId);
+        console.log(`Found game for table ${tableId}:`, game ? game.gameId : 'NO GAME FOUND');
+        if (game) {
+          // Attempt to reconnect to the game
+          const reconnectResult = GameManager.handleReconnect(game.gameId, userId, socket.id);
+          console.log(`Reconnect result for ${userId}:`, reconnectResult.success ? 'SUCCESS' : `FAILED: ${reconnectResult.error}`);
+
+          if (reconnectResult.success) {
+            socket.join(`game_${game.gameId}`);
+
+            // Send game_initialized event with full player info
+            const playerIdx = reconnectResult.playerIndex;
+            const opponentIdx = playerIdx === 0 ? 1 : 0;
+            // Use game.players which has 'name' property (not userName)
+            const gamePlayers = game.players || [];
+            const opponentName = gamePlayers[opponentIdx]?.name || 'Opponent';
+
+            const initData = {
+              gameId: game.gameId,
+              tableId: tableId,
+              playerIndex: playerIdx,
+              color: PLAYER_CONFIG[playerIdx].color,
+              playerNo: PLAYER_CONFIG[playerIdx].playerNo,
+              opponentName: opponentName,
+              gameState: reconnectResult.gameState
+            };
+
+            console.log(`Sending game_initialized to player ${userId}:`, {
+              gameId: initData.gameId,
+              playerIndex: initData.playerIndex,
+              color: initData.color,
+              opponentName: initData.opponentName
+            });
+
+            socket.emit('game_initialized', initData);
+          } else {
+            console.log(`Reconnect failed for ${userId}, sending game_state_update instead`);
+            // Even if reconnect fails, try to send game state
+            const gameState = GameManager.getGameState(game.gameId, socket.id);
+            if (gameState) {
+              socket.emit('game_state_update', {
+                gameId: game.gameId,
+                gameState: gameState
+              });
+            }
+          }
+        } else {
+          console.log(`No game found for table ${tableId}`);
+        }
       }
     }
   });
@@ -214,26 +285,60 @@ io.on('connection', (socket) => {
   });
 
   // Start game (when table is full)
-  socket.on('start_game', ({ tableId }) => {
+  socket.on('start_game', async ({ tableId }) => {
     const table = activeTables.get(tableId);
-    if (table) {
+    if (table && table.players.length >= 2) {
       // Clear timeout if exists
       if (tableTimeouts.has(tableId)) {
         clearTimeout(tableTimeouts.get(tableId));
         tableTimeouts.delete(tableId);
       }
-      
+
       table.status = 'active';
       activeTables.set(tableId, table);
+
+      // Get socket instances for both players
+      const sockets = await io.in(`table_${tableId}`).fetchSockets();
+
+      if (sockets.length >= 2) {
+        // Prepare player data for game initialization
+        const players = table.players.map((odId, index) => {
+          const playerSocket = sockets.find(s => socketToUser.get(s.id) === odId) || sockets[index];
+          return {
+            userId: odId,
+            socketId: playerSocket?.id,
+            userName: index === 0 ? table.creatorName : 'Player 2'
+          };
+        });
+
+        // Initialize the server-authoritative game
+        const { gameId, gameState } = initializeGame(
+          io,
+          sockets[0],
+          sockets[1],
+          tableId,
+          players,
+          table.betAmount
+        );
+
+        // Store game ID in table
+        table.gameId = gameId;
+
+        console.log(`Game ${gameId} started for table ${tableId}`);
+      }
+
       io.to(`table_${tableId}`).emit('game_started', table);
       io.to('waiting_room').emit('table_updated', table);
     }
   });
 
-  // Game turn change event (when player's turn changes)
+  // ============ Legacy Game Events (for backward compatibility during transition) ============
+  // These will be gradually phased out as frontend is updated
+
+  // Game turn change event (legacy - now handled by server)
   socket.on('game_turn_change', ({ tableId, playerNo, playerName }) => {
-    console.log(`[SERVER] Turn change: Player ${playerNo} for table ${tableId}`);
-    // Broadcast turn change to ALL players in the table (including sender for sync)
+    console.log(`[LEGACY] Turn change: Player ${playerNo} for table ${tableId}`);
+    // Still broadcast for legacy clients
     io.to(`table_${tableId}`).emit('game_turn_change', {
       tableId,
       playerNo,
@@ -241,20 +346,18 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Game dice roll event (when player rolls dice)
+  // Game dice roll event (legacy - now server generates dice)
   socket.on('game_dice_roll', ({ tableId, playerNo }) => {
-    console.log(`[SERVER] Dice roll: Player ${playerNo} for table ${tableId}`);
-    // Broadcast dice roll to ALL players in the table (including sender for sync)
+    console.log(`[LEGACY] Dice roll: Player ${playerNo} for table ${tableId}`);
     io.to(`table_${tableId}`).emit('game_dice_roll', {
       tableId,
       playerNo
     });
   });
 
-  // Game dice result event (when dice roll completes)
+  // Game dice result event (legacy - dice now generated on server)
   socket.on('game_dice_result', ({ tableId, playerNo, diceValue, diceBoxId }) => {
-    console.log(`[SERVER] Dice result: Player ${playerNo} rolled ${diceValue} for table ${tableId}`);
-    // Broadcast dice result to ALL players in the table (including sender for sync)
+    console.log(`[LEGACY] Dice result: Player ${playerNo} rolled ${diceValue} for table ${tableId}`);
     io.to(`table_${tableId}`).emit('game_dice_result', {
       tableId,
       playerNo,
@@ -263,10 +366,9 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Game pawn open event (when player opens a pawn)
+  // Game pawn open event (legacy)
   socket.on('game_pawn_open', ({ tableId, playerNo, playerName, pawnClass, startPoint, width, height }) => {
-    console.log(`[SERVER] Pawn open: Player ${playerNo} opened ${pawnClass} for table ${tableId}`);
-    // Broadcast pawn open to ALL players in the table (including sender for sync)
+    console.log(`[LEGACY] Pawn open: Player ${playerNo} opened ${pawnClass} for table ${tableId}`);
     io.to(`table_${tableId}`).emit('game_pawn_open', {
       tableId,
       playerNo,
@@ -278,10 +380,9 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Game pawn move event (when player moves a pawn)
+  // Game pawn move event (legacy)
   socket.on('game_pawn_move', ({ tableId, playerNo, playerName, pawnClass, newPosition, oldPosition, moveType }) => {
-    console.log(`[SERVER] Pawn move: Player ${playerNo} moved ${pawnClass} from ${oldPosition} to ${newPosition} for table ${tableId}`);
-    // Broadcast pawn movement to ALL players in the table (including sender for sync)
+    console.log(`[LEGACY] Pawn move: Player ${playerNo} moved ${pawnClass} from ${oldPosition} to ${newPosition} for table ${tableId}`);
     io.to(`table_${tableId}`).emit('game_pawn_move', {
       tableId,
       playerNo,
@@ -293,6 +394,8 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ============ End Legacy Events ============
+
   // Cancel table
   socket.on('cancel_table', async ({ tableId, userId }) => {
     const table = activeTables.get(tableId);
@@ -302,7 +405,7 @@ io.on('connection', (socket) => {
         clearTimeout(tableTimeouts.get(tableId));
         tableTimeouts.delete(tableId);
       }
-      
+
       // Return balance if only creator is in table
       if (table.players.length === 1) {
         try {
@@ -312,7 +415,7 @@ io.on('connection', (socket) => {
             .select('balance')
             .eq('id', userId)
             .single();
-          
+
           if (userData) {
             const newBalance = (userData.balance || 0) + table.betAmount;
             await supabase
@@ -324,7 +427,7 @@ io.on('connection', (socket) => {
           console.error('Error returning balance on cancel:', err);
         }
       }
-      
+
       // Remove table
       activeTables.delete(tableId);
       try {
@@ -333,7 +436,7 @@ io.on('connection', (socket) => {
       } catch (err) {
         console.error('Error deleting table:', err);
       }
-      
+
       io.to('waiting_room').emit('table_removed', { tableId });
       io.to(`table_${tableId}`).emit('table_cancelled', { tableId });
     }
@@ -355,14 +458,14 @@ io.on('connection', (socket) => {
     try {
       // Store socket to user mapping
       socketToUser.set(socket.id, userId);
-      
+
       // Get or create queue for this table amount
       if (!matchmakingQueues.has(tableAmount)) {
         matchmakingQueues.set(tableAmount, []);
       }
-      
+
       const queue = matchmakingQueues.get(tableAmount);
-      
+
       // Check if user is already in queue
       const existingIndex = queue.findIndex(p => p.userId === userId);
       if (existingIndex !== -1) {
@@ -370,7 +473,7 @@ io.on('connection', (socket) => {
         socket.emit('search_started', { tableAmount, position: queue.length });
         return;
       }
-      
+
       // Add player to queue
       const player = {
         userId,
@@ -380,48 +483,36 @@ io.on('connection', (socket) => {
         tableAmount,
         joinedAt: new Date().toISOString()
       };
-      
+
       queue.push(player);
       matchmakingQueues.set(tableAmount, queue);
-      
+
       console.log(`Player ${userId} searching for table ${tableAmount}. Queue size: ${queue.length}`);
-      
+
       // Notify player they're in queue
       socket.emit('search_started', { tableAmount, position: queue.length });
-      
-      // Check if we can match players (need 2 players) and no matching is in progress
-      // Use setTimeout with 0 delay to ensure queue is fully updated before checking
-      // This handles race conditions when two players search simultaneously
+
+      // Check if we can match players
       setTimeout(async () => {
-        // Re-check queue length and lock status to handle race conditions
         const currentQueue = matchmakingQueues.get(tableAmount);
-        if (!currentQueue) {
-          return; // Queue was deleted (shouldn't happen, but safety check)
-        }
-        
+        if (!currentQueue) return;
+
         const queueLength = currentQueue.length;
         const isLocked = matchingLocks.get(tableAmount);
-        
+
         console.log(`Checking match for table ${tableAmount}: queue length=${queueLength}, locked=${isLocked}`);
-        
+
         if (queueLength >= 2 && !isLocked) {
-          // Set lock before matching to prevent concurrent matching attempts
           matchingLocks.set(tableAmount, true);
           console.log(`Attempting to match players for table ${tableAmount}, queue size: ${queueLength}`);
           try {
-            // Pass the queue reference - matchPlayers will modify it by shifting players
             await matchPlayers(tableAmount, currentQueue);
           } catch (matchError) {
             console.error('Error in matchPlayers:', matchError);
-            // Lock will be deleted in finally block of matchPlayers, but ensure it's cleared on error
             matchingLocks.delete(tableAmount);
           }
-        } else if (queueLength >= 2 && isLocked) {
-          console.log(`Match already in progress for table ${tableAmount}, queue size: ${queueLength}`);
-        } else if (queueLength < 2) {
-          console.log(`Not enough players for table ${tableAmount}, queue size: ${queueLength}`);
         }
-      }, 0); // Use 0 delay to run on next tick, ensuring queue updates are processed
+      }, 0);
     } catch (error) {
       console.error('Error in search_match:', error);
       socket.emit('search_error', { message: 'Failed to start search' });
@@ -448,81 +539,69 @@ io.on('connection', (socket) => {
 
   // Helper function to match players and create game
   async function matchPlayers(tableAmount, queue) {
-    // Double-check queue length before proceeding
     if (!queue || queue.length < 2) {
-      console.log(`Cannot match: queue is ${queue ? 'empty or has < 2 players' : 'null'} for table ${tableAmount}`);
+      console.log(`Cannot match: queue has < 2 players for table ${tableAmount}`);
       matchingLocks.delete(tableAmount);
       return;
     }
-    
-    // Get first two players (this modifies the queue)
+
     const player1 = queue.shift();
     const player2 = queue.shift();
-    
-    // Validate we got both players
+
     if (!player1 || !player2) {
-      console.error(`Failed to get both players for table ${tableAmount}. Player1: ${player1?.userId}, Player2: ${player2?.userId}`);
-      // Put players back in queue if we got them
+      console.error(`Failed to get both players for table ${tableAmount}`);
       if (player1) queue.unshift(player1);
       if (player2) queue.unshift(player2);
       matchingLocks.delete(tableAmount);
       return;
     }
-    
+
     console.log(`Matching players: ${player1.userId} and ${player2.userId} for table ${tableAmount}`);
-    
-    // Update queue
+
     if (queue.length === 0) {
       matchmakingQueues.delete(tableAmount);
     } else {
       matchmakingQueues.set(tableAmount, queue);
     }
-    
-    console.log(`Matching players: ${player1.userId} and ${player2.userId} for table ${tableAmount}`);
-    
+
     try {
       const { supabase } = await import('./config/supabase.js');
-      
-      // Deduct balance from both players
+
+      // Check balances
       const [user1Data, user2Data] = await Promise.all([
         supabase.from('users').select('balance').eq('id', player1.userId).single(),
         supabase.from('users').select('balance').eq('id', player2.userId).single()
       ]);
-      
+
       if (user1Data.error || !user1Data.data || user1Data.data.balance < tableAmount) {
-        // Player 1 insufficient balance, put player 2 back in queue
         queue.unshift(player2);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
         io.to(player1.socketId).emit('match_error', { message: 'Insufficient balance' });
         return;
       }
-      
+
       if (user2Data.error || !user2Data.data || user2Data.data.balance < tableAmount) {
-        // Player 2 insufficient balance, put player 1 back in queue
         queue.unshift(player1);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
         io.to(player2.socketId).emit('match_error', { message: 'Insufficient balance' });
         return;
       }
-      
-      // Check if sockets are still connected before proceeding
+
+      // Check sockets
       const socket1 = io.sockets.sockets.get(player1.socketId);
       const socket2 = io.sockets.sockets.get(player2.socketId);
-      
+
       if (!socket1 || !socket2) {
         console.error(`One or both sockets not found: ${player1.socketId}, ${player2.socketId}`);
-        // Put players back in queue (no balance deducted yet)
         queue.unshift(player1, player2);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
-        io.to(player1.socketId || socket1?.id).emit('match_error', { message: 'Connection lost. Please try again.' });
-        io.to(player2.socketId || socket2?.id).emit('match_error', { message: 'Connection lost. Please try again.' });
         return;
       }
-      
-      // Create table in database first (before deducting balance)
+
+      // Create table in database
       const tableId = `default_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const { data: tableData, error: tableError } = await supabase
         .from('tables')
@@ -530,16 +609,15 @@ io.on('connection', (socket) => {
           id: tableId,
           creator_id: player1.userId,
           bet_amount: tableAmount,
-          status: 'waiting', // Set to waiting first, will change to active after balance deduction
+          status: 'waiting',
           players: [player1.userId, player2.userId],
           created_at: new Date().toISOString()
         })
         .select()
         .single();
-      
+
       if (tableError) {
         console.error('Error creating table:', tableError);
-        // Put players back in queue (no balance deducted yet)
         queue.unshift(player1, player2);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
@@ -547,32 +625,25 @@ io.on('connection', (socket) => {
         io.to(player2.socketId).emit('match_error', { message: 'Failed to create game' });
         return;
       }
-      
-      // Now deduct balance from both players (after table is created and sockets confirmed)
+
+      // Deduct balances
       const [balanceUpdate1, balanceUpdate2] = await Promise.all([
         supabase.from('users').update({ balance: user1Data.data.balance - tableAmount }).eq('id', player1.userId),
         supabase.from('users').update({ balance: user2Data.data.balance - tableAmount }).eq('id', player2.userId)
       ]);
-      
-      // Check if balance deduction failed
+
       if (balanceUpdate1.error || balanceUpdate2.error) {
         console.error('Error deducting balance:', balanceUpdate1.error || balanceUpdate2.error);
-        // Delete table and put players back in queue
         await supabase.from('tables').delete().eq('id', tableId);
         queue.unshift(player1, player2);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
-        io.to(player1.socketId).emit('match_error', { message: 'Failed to process payment' });
-        io.to(player2.socketId).emit('match_error', { message: 'Failed to process payment' });
         return;
       }
-      
-      // Update table status to active after successful balance deduction
-      await supabase
-        .from('tables')
-        .update({ status: 'active' })
-        .eq('id', tableId);
-      
+
+      // Update table status
+      await supabase.from('tables').update({ status: 'active' }).eq('id', tableId);
+
       // Create active table object
       const table = {
         id: tableId,
@@ -587,41 +658,63 @@ io.on('connection', (socket) => {
         status: 'active',
         isDefault: true
       };
-      
+
       activeTables.set(tableId, table);
-      
+
       // Join both players to table room
       socket1.join(`table_${tableId}`);
       socket2.join(`table_${tableId}`);
-      
+
       // Notify both players that match is found
       socket1.emit('match_found', { table, opponent: player2 });
       socket2.emit('match_found', { table, opponent: player1 });
-      
-      // Automatically start the game for default tables (both players matched)
-      // Emit game_started after a delay to ensure match_found is processed first
+
+      // Initialize the server-authoritative game
+      const players = [
+        {
+          userId: player1.userId,
+          socketId: player1.socketId,
+          userName: player1.userName
+        },
+        {
+          userId: player2.userId,
+          socketId: player2.socketId,
+          userName: player2.userName
+        }
+      ];
+
+      // Start game after a short delay
       setTimeout(() => {
-        // Emit to both sockets individually to ensure they receive it
+        const { gameId, gameState } = initializeGame(
+          io,
+          socket1,
+          socket2,
+          tableId,
+          players,
+          tableAmount
+        );
+
+        table.gameId = gameId;
+
         socket1.emit('game_started', table);
         socket2.emit('game_started', table);
-        // Also broadcast to room as backup
         io.to(`table_${tableId}`).emit('game_started', table);
-        console.log(`Game started event sent for table ${tableId} to both players`);
-      }, 500); // Increased delay to ensure navigation completes
-      
+        console.log(`Game started: ${gameId} for table ${tableId}`);
+      }, 500);
+
       console.log(`Match created: Table ${tableId} with players ${player1.userId} and ${player2.userId}`);
       matchingLocks.delete(tableAmount);
     } catch (error) {
       console.error('Error matching players:', error);
-      
-      // Try to refund balance if it was deducted
+
+      // Refund on error
       try {
         const { supabase } = await import('./config/supabase.js');
         const [user1Data, user2Data] = await Promise.all([
           supabase.from('users').select('balance').eq('id', player1.userId).single(),
           supabase.from('users').select('balance').eq('id', player2.userId).single()
         ]);
-        
+
         if (user1Data.data) {
           await supabase.from('users').update({ balance: (user1Data.data.balance || 0) + tableAmount }).eq('id', player1.userId);
         }
@@ -631,8 +724,7 @@ io.on('connection', (socket) => {
       } catch (refundError) {
         console.error('Error refunding balance:', refundError);
       }
-      
-      // Put players back in queue on error
+
       queue.unshift(player1, player2);
       matchmakingQueues.set(tableAmount, queue);
       matchingLocks.delete(tableAmount);
@@ -643,7 +735,10 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
-    
+
+    // Handle game disconnection (managed by game handlers)
+    // The registerGameHandlers already sets up disconnect handling
+
     // Remove from matchmaking queues
     const userId = socketToUser.get(socket.id);
     if (userId) {
@@ -667,9 +762,9 @@ io.on('connection', (socket) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ 
-    success: false, 
-    message: 'Something went wrong!', 
+  res.status(500).json({
+    success: false,
+    message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : {}
   });
 });
@@ -685,4 +780,3 @@ httpServer.listen(PORT, async () => {
   console.log('Testing Supabase connection...');
   await testConnection();
 });
-

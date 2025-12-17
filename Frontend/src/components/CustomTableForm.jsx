@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { userAPI } from '../utils/api';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 export default function CustomTableForm({ user, onTableCreated, onBack }) {
   const [balance, setBalance] = useState(0);
@@ -70,7 +71,7 @@ export default function CustomTableForm({ user, onTableCreated, onBack }) {
 
     try {
       // Create table via API
-      const response = await fetch('http://localhost:5000/api/tables', {
+      const response = await fetch(`${API_BASE_URL}/tables`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

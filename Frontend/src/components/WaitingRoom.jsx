@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { userAPI } from '../utils/api';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 export default function WaitingRoom({ user, onJoinTable, onBack }) {
   const [tables, setTables] = useState([]);
@@ -100,7 +101,7 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
     // Fetch initial tables from API
     const fetchTables = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/tables/waiting', {
+        const response = await fetch(`${API_BASE_URL}/tables/waiting`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -127,7 +128,7 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
 
   const handleJoinTable = async (table) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/tables/${table.id}/join`, {
+      const response = await fetch(`${API_BASE_URL}/tables/${table.id}/join`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -155,7 +156,7 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
       userId = userId || user?.id || user?.userId;
 
       // Deduct balance when joining
-      const { data: updatedUser } = await fetch('http://localhost:5000/api/users/profile', {
+      const { data: updatedUser } = await fetch(`${API_BASE_URL}/users/profile`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }

@@ -3,15 +3,22 @@ import { io } from 'socket.io-client';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
-const LudoGame = ({ table, onBack, onGameEnd }) => {
+/**
+ * LudoGameV2 Component
+ * Uses server-authoritative game engine for secure multiplayer
+ */
+const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
   const [socket, setSocket] = useState(null);
+  const [gameState, setGameState] = useState(null);
+  const [playerInfo, setPlayerInfo] = useState(null);
+  const [message, setMessage] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
   const gameInitializedRef = useRef(false);
   const scriptsLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (!table) return; // Don't initialize if no table
-    
-    // Prevent multiple initializations
+    if (!table) return;
+
     if (gameInitializedRef.current) {
       console.log('Game already initialized, skipping...');
       return;
@@ -34,7 +41,7 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
       return;
     }
 
-    // Load CSS (only if not already loaded)
+    // Load CSS
     if (!document.querySelector('link[href="/css/style.css"]')) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
@@ -42,7 +49,7 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
       document.head.appendChild(link);
     }
 
-    // Load Google Fonts (only if not already loaded)
+    // Load Google Fonts
     if (!document.querySelector('link[href*="Fredoka+One"]')) {
       const fontLink = document.createElement('link');
       fontLink.href = 'https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap';
@@ -50,235 +57,242 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
       document.head.appendChild(fontLink);
     }
 
-    // Initialize socket connection for multiplayer
+    // Initialize socket connection
     const gameSocket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 5
     });
-    
+
     setSocket(gameSocket);
 
-    // Wait for socket to connect before proceeding
     gameSocket.on('connect', () => {
       console.log('Game socket connected:', gameSocket.id);
-      
-      // Join table room immediately after connection
+      setIsConnected(true);
+
+      // Join table room
       if (table.id && userId) {
         gameSocket.emit('join_table', {
           tableId: table.id,
           userId: userId
         });
         console.log('Joined table room:', table.id);
-      }
-    });
 
-    // Handle reconnection to active table
-    gameSocket.on('table_joined', ({ table: tableData, userId: joinedUserId }) => {
-      console.log('Rejoined active table:', tableData);
-      // If game is already initialized, don't re-initialize
-      // Just ensure socket handlers are set up
-      if (gameInitializedRef.current && window.initializeSocket && tableData.id) {
-        console.log('Game already initialized, re-initializing socket handlers only');
-        window.initializeSocket(gameSocket, tableData.id);
-      }
-    });
-
-    // Function to initialize game with table settings
-    const initializeGame = () => {
-      if (!table || gameInitializedRef.current) {
-        console.log('Skipping game initialization - already initialized or no table');
-        return;
-      }
-      
-      // Ensure socket is connected
-      if (!gameSocket.connected) {
-        console.log('Socket not connected yet, waiting...');
-        gameSocket.once('connect', () => {
-          setTimeout(() => initializeGame(), 500);
-        });
-        return;
-      }
-      
-      // Wait for the script to fully load and variables to be available
-      const tryInitialize = (attempts = 0) => {
-        console.log(`Attempting to initialize game, attempt ${attempts + 1}`);
-        
-        if (window.jQuery && window.$ && window.$('#twoPlayer').length > 0 && window.initializePlayerAssignment && window.initializeSocket) {
-          console.log('Game scripts ready, initializing...');
-          
-          // Mark as initialized to prevent duplicate initialization
-          gameInitializedRef.current = true;
-          
-          // Clear any existing pawns first to prevent duplicates
-          window.$('.r-pawn1, .r-pawn2, .r-pawn3, .r-pawn4, .g-pawn1, .g-pawn2, .g-pawn3, .g-pawn4, .b-pawn1, .b-pawn2, .b-pawn3, .b-pawn4, .y-pawn1, .y-pawn2, .y-pawn3, .y-pawn4').remove();
-          
-          // Hide home container
-          window.$('#home-container').css('display', 'none');
-          
-          // Set number of players to 2 for default tables
-          // First trigger click on twoPlayer to set the variable in the script
-          window.$('.selected').removeClass('selected');
-          window.$('#twoPlayer').addClass('selected');
-          
-          // Trigger click and wait for it to process
-          window.$('#twoPlayer').trigger('click');
-          
-          // Verify noOfPlayer is set correctly (check window.noOfPlayer if exposed, or wait)
-          // Wait for the click to register and set noOfPlayer = 2
-          setTimeout(() => {
-            // Initialize player assignment for multiplayer BEFORE starting game
-            if (table.players && userId && window.initializePlayerAssignment) {
-              console.log('Initializing player assignment:', userId, table.players);
-              window.initializePlayerAssignment(userId, table.players);
-            }
-            
-            // Initialize socket for multiplayer AFTER player assignment
-            if (table.id && gameSocket && window.initializeSocket) {
-              console.log('Initializing socket for table:', table.id);
-              // Initialize socket handlers
-              window.initializeSocket(gameSocket, table.id);
-            }
-            
-            // Check if game is already started (main is visible or pawns exist)
-            const mainVisible = window.$('main').css('display') === 'block';
-            const pawnsExist = window.$('.r-pawn1, .y-pawn1').length > 0;
-            
-            if (mainVisible || pawnsExist) {
-              console.log('Game already started, skipping start...');
-              return;
-            }
-            
-            // Start the game automatically by clicking start button
-            // This ensures noOfPlayer is already set from the click above
-            setTimeout(() => {
-              console.log('Starting game...');
-              if (window.$('#startGame').length > 0) {
-                // Hide home container and trigger start
-                window.$('#home-container').css('display', 'none');
-                window.$('#startGame').trigger('click');
-                console.log('Game start triggered');
-              } else {
-                console.error('Start game button not found!');
-              }
-            }, 300);
-          }, 200);
-        } else if (attempts < 20) {
-          // Retry if scripts aren't ready yet (increased attempts)
-          setTimeout(() => tryInitialize(attempts + 1), 200);
-        } else {
-          console.error('Failed to initialize game after 20 attempts');
-        }
-      };
-      
-      setTimeout(() => tryInitialize(), 300);
-    };
-
-    // Load jQuery if not already loaded
-    if (!window.jQuery) {
-      console.log('Loading jQuery...');
-      const jqueryScript = document.createElement('script');
-      jqueryScript.src = 'https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js';
-      jqueryScript.async = false; // Load synchronously to ensure order
-      document.body.appendChild(jqueryScript);
-
-      jqueryScript.onload = () => {
-        console.log('jQuery loaded');
-        // Load ludo-game.js after jQuery is loaded
-        if (!scriptsLoadedRef.current) {
-          scriptsLoadedRef.current = true;
-          const gameScript = document.createElement('script');
-          gameScript.src = '/script/ludo-game.js';
-          document.body.appendChild(gameScript);
-          
-          // Initialize game after script loads
-          gameScript.onload = () => {
-            console.log('Ludo game script loaded');
-            // Wait for socket connection before initializing
-            if (gameSocket.connected) {
-              initializeGame();
-            } else {
-              gameSocket.once('connect', () => {
-                setTimeout(() => initializeGame(), 500);
-              });
-            }
-          };
-        }
-      };
-    } else {
-      console.log('jQuery already loaded');
-      // Check if game script is already loaded
-      const existingScript = document.querySelector('script[src="/script/ludo-game.js"]');
-      if (existingScript && scriptsLoadedRef.current) {
-        // Script already loaded, initialize immediately
-        console.log('Game script already loaded, initializing...');
-        if (gameSocket.connected) {
-          initializeGame();
-        } else {
-          gameSocket.once('connect', () => {
-            setTimeout(() => initializeGame(), 500);
+        // If game already has a gameId, try to get state or join the game
+        if (table.gameId) {
+          gameSocket.emit('game_join', {
+            gameId: table.gameId,
+            odId: userId
           });
         }
-      } else {
-        // jQuery already loaded, just load the game script
-        if (!scriptsLoadedRef.current) {
-          scriptsLoadedRef.current = true;
-          const gameScript = document.createElement('script');
-          gameScript.src = '/script/ludo-game.js';
-          document.body.appendChild(gameScript);
-          
-          // Initialize game after script loads
-          gameScript.onload = () => {
-            console.log('Ludo game script loaded');
-            if (gameSocket.connected) {
-              initializeGame();
-            } else {
-              gameSocket.once('connect', () => {
-                setTimeout(() => initializeGame(), 500);
-              });
-            }
-          };
-        }
       }
-    }
+    });
 
-    // Handle socket disconnection
     gameSocket.on('disconnect', () => {
       console.log('Game socket disconnected');
+      setIsConnected(false);
     });
 
-    // Handle socket reconnection
-    gameSocket.on('reconnect', (attemptNumber) => {
-      console.log(`Game socket reconnected after ${attemptNumber} attempts`);
-      // Rejoin table room after reconnection
-      if (table.id && userId) {
-        gameSocket.emit('join_table', {
-          tableId: table.id,
-          userId: userId
-        });
-        console.log('Rejoined table room after reconnection:', table.id);
+    // Listen for game initialization from server
+    gameSocket.on('game_initialized', (data) => {
+      console.log('Game initialized:', data);
+      setGameState(data.gameState);
+      setPlayerInfo({
+        index: data.playerIndex,
+        color: data.color,
+        playerNo: data.playerNo,
+        opponentName: data.opponentName
+      });
+
+      // Initialize the V2 game script with the initialization data
+      initializeGameScript(gameSocket, table.id, userId, table.players, data);
+    });
+
+    // Listen for game state updates
+    gameSocket.on('game_state_update', (data) => {
+      console.log('Game state update:', data);
+      setGameState(data.gameState);
+
+      // If we receive a state update and haven't initialized yet, do it now
+      if (!gameInitializedRef.current && data.gameState) {
+        // Determine player index from the game state
+        const myPlayer = data.gameState.players.find(p => p.odId === userId);
+        if (myPlayer) {
+          const opponentPlayer = data.gameState.players.find(p => p.odId !== userId);
+          setPlayerInfo({
+            index: myPlayer.index,
+            color: myPlayer.index === 0 ? 'r' : 'y',
+            playerNo: myPlayer.index === 0 ? 1 : 3,
+            opponentName: opponentPlayer?.name || 'Opponent'
+          });
+
+          // Create init data object
+          const initData = {
+            gameId: data.gameId,
+            playerIndex: myPlayer.index,
+            color: myPlayer.index === 0 ? 'r' : 'y',
+            playerNo: myPlayer.index === 0 ? 1 : 3,
+            opponentName: opponentPlayer?.name || 'Opponent',
+            gameState: data.gameState
+          };
+
+          // Initialize the game script with the data
+          initializeGameScript(gameSocket, table.id, userId, table.players, initData);
+        }
       }
     });
 
-    // Cleanup function
+    // Listen for reconnection
+    gameSocket.on('game_reconnected', (data) => {
+      console.log('Reconnected to game:', data);
+      setGameState(data.gameState);
+      setPlayerInfo({
+        index: data.playerIndex,
+        color: data.playerIndex === 0 ? 'r' : 'y',
+        playerNo: data.playerIndex === 0 ? 1 : 3
+      });
+    });
+
+    // Listen for game over
+    gameSocket.on('game_over', (data) => {
+      console.log('Game over:', data);
+      setGameState(data.gameState);
+
+      if (onGameEnd) {
+        onGameEnd({
+          winner: data.winner,
+          reason: data.reason,
+          isWinner: data.winner.playerIndex === playerInfo?.index
+        });
+      }
+    });
+
+    // Function to initialize game script
+    const initializeGameScript = (socket, tableId, odId, players, initData = null) => {
+      // Load jQuery if needed
+      const loadScripts = () => {
+        if (window.jQuery && window.initializeGameV2) {
+          console.log('Initializing V2 game with data:', initData);
+          gameInitializedRef.current = true;
+
+          // Hide home container
+          window.$('#home-container').css('display', 'none');
+          window.$('main').css('display', 'block');
+
+          // Initialize pawns for 2-player game
+          setupPawns();
+
+          // Initialize the V2 game engine with initialization data
+          window.initializeGameV2(socket, tableId, odId, players, initData);
+        } else {
+          setTimeout(loadScripts, 100);
+        }
+      };
+
+      // Load jQuery
+      if (!window.jQuery) {
+        const jqueryScript = document.createElement('script');
+        jqueryScript.src = 'https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js';
+        jqueryScript.async = false;
+        document.body.appendChild(jqueryScript);
+
+        jqueryScript.onload = () => {
+          // Load V2 game script
+          if (!scriptsLoadedRef.current) {
+            scriptsLoadedRef.current = true;
+            const gameScript = document.createElement('script');
+            gameScript.src = '/script/ludo-game-v2.js';
+            document.body.appendChild(gameScript);
+            gameScript.onload = loadScripts;
+          }
+        };
+      } else if (!scriptsLoadedRef.current) {
+        scriptsLoadedRef.current = true;
+        const gameScript = document.createElement('script');
+        gameScript.src = '/script/ludo-game-v2.js';
+        document.body.appendChild(gameScript);
+        gameScript.onload = loadScripts;
+      } else {
+        loadScripts();
+      }
+    };
+
+    // Set up pawns for 2-player game
+    const setupPawns = () => {
+      // Clear existing pawns
+      window.$('.r-pawn1, .r-pawn2, .r-pawn3, .r-pawn4').remove();
+      window.$('.y-pawn1, .y-pawn2, .y-pawn3, .y-pawn4').remove();
+
+      // Add red pawns to home
+      for (let i = 1; i <= 4; i++) {
+        window.$(`#in-r-${i}`).append(`<div class='r-pawn${i}'></div>`);
+      }
+
+      // Add yellow pawns to home
+      for (let i = 1; i <= 4; i++) {
+        window.$(`#in-y-${i}`).append(`<div class='y-pawn${i}'></div>`);
+      }
+    };
+
+    // Start the initialization process
+    if (gameSocket.connected) {
+      // Socket already connected, wait for game_initialized event
+    } else {
+      gameSocket.once('connect', () => {
+        // Connection established, server will send game_initialized
+      });
+    }
+
+    // Cleanup
     return () => {
-      console.log('Cleaning up LudoGame component');
-      // Remove event listeners to prevent memory leaks
       gameSocket.off('connect');
       gameSocket.off('disconnect');
-      gameSocket.off('reconnect');
-      gameSocket.off('table_joined');
-      // Don't disconnect socket - let it handle reconnection automatically
-      // Only disconnect if component is truly unmounting
-      // Reset refs only if we're completely cleaning up
-      // gameInitializedRef.current = false;
-      // scriptsLoadedRef.current = false;
+      gameSocket.off('game_initialized');
+      gameSocket.off('game_state_update');
+      gameSocket.off('game_reconnected');
+      gameSocket.off('game_over');
     };
-  }, [table]); // Re-run if table changes
+  }, [table]);
 
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
-      {/* Home Container - Hidden if table is provided */}
+      {/* Connection Status */}
+      {!isConnected && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: '#f44336',
+          color: 'white',
+          padding: '10px',
+          textAlign: 'center',
+          zIndex: 10000
+        }}>
+          Disconnected. Reconnecting...
+        </div>
+      )}
+
+      {/* Player Info */}
+      {playerInfo && (
+        <div style={{
+          position: 'fixed',
+          top: '10px',
+          right: '10px',
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          color: 'white',
+          padding: '10px 15px',
+          borderRadius: '8px',
+          zIndex: 9999,
+          fontSize: '14px'
+        }}>
+          <div>You: {playerInfo.color === 'r' ? 'Red' : 'Yellow'}</div>
+          <div>Opponent: {playerInfo.opponentName || 'Player'}</div>
+          <div>Bet: ₹{table?.betAmount || table?.bet_amount}</div>
+        </div>
+      )}
+
+      {/* Home Container - Hidden when game starts */}
       <div id="home-container" style={{ display: table ? 'none' : 'block' }}>
         <div id="home">
           <div id="game-logo">
@@ -288,18 +302,15 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
             <div>Play Ludo Online</div>
           </div>
           <div id="noOfplayerBox">
-            <div id="twoPlayer" className="noOfPlayer">2P</div>
+            <div id="twoPlayer" className="noOfPlayer selected">2P</div>
             <div id="threePlayer" className="noOfPlayer">3P</div>
-            <div id="fourPlayer" className="noOfPlayer selected">4P</div>
+            <div id="fourPlayer" className="noOfPlayer">4P</div>
           </div>
           <button id="startGame">Start</button>
         </div>
-        <div id="owner">
-          Made By <a href="https://github.com/vishalmishra090">Vishal Mishra</a>
-        </div>
       </div>
 
-      {/* Main Game */}
+      {/* Main Game Board */}
       <main>
         <div className="game-container">
           <div className="wrap-box">
@@ -312,7 +323,10 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
                 <div className="col2 col">
                   <div className="settingsContiner">
                     <button id="sound" className="setting"></button>
-                    <button id="restart" className="setting"></button>
+                    <button id="forfeit" className="setting" style={{
+                      backgroundImage: 'url(/images/restart.svg)',
+                      backgroundSize: 'contain'
+                    }} title="Forfeit"></button>
                   </div>
                 </div>
                 <div className="col3 col">
@@ -573,13 +587,14 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
 
       {/* Alert Box */}
       <div id="alertBox">
-        <p id="alertHeading">Restart The Game</p>
+        <p id="alertHeading">Forfeit Game?</p>
+        <p style={{ fontSize: '14px', color: '#666' }}>You will lose the bet amount.</p>
         <button id="cancel" className="alertBtn">Cancel</button>
-        <button id="ok" className="alertBtn">Ok</button>
+        <button id="ok" className="alertBtn">Forfeit</button>
       </div>
 
       {/* Preload Images */}
-      <div id="preload">
+      <div id="preload" style={{ display: 'none' }}>
         <img src="/images/dice_roll.png" alt="" />
         <img src="/images/dice.png" alt="" />
         <img src="/images/pawns.png" alt="" />
@@ -598,4 +613,4 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
   );
 };
 
-export default LudoGame;
+export default LudoGameV2;

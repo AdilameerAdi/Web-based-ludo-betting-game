@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { userAPI } from '../utils/api';
 import DefaultTableSelection from './DefaultTableSelection';
-import LudoGame from './LudoGame';
+import LudoGameV2 from './LudoGameV2';
 import CustomTableForm from './CustomTableForm';
 import WaitingRoom from './WaitingRoom';
 import AddFunds from './AddFunds';
@@ -222,7 +222,7 @@ export default function UserDashboard({ user, onLogout }) {
 
   // Show game screen
   if (view === 'game' && selectedTable) {
-    return <LudoGame table={selectedTable} onBack={handleBackToDashboard} onGameEnd={handleGameEnd} />;
+    return <LudoGameV2 table={selectedTable} onBack={handleBackToDashboard} onGameEnd={handleGameEnd} />;
   }
 
   const isDark = theme === 'dark';
