@@ -93,7 +93,7 @@ export default function AdminLogin() {
           <button
             type="submit"
             disabled={loading || !username || !password}
-            className="w-full px-6 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+            className="w-full px-6 py-3 rounded-xl font-bold text-black bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl border-2 border-transparent hover:border-purple-700"
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>

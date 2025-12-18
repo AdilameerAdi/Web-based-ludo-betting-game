@@ -1,6 +1,6 @@
 import { Admin } from '../models/Admin.js';
 import jwt from 'jsonwebtoken';
-import { supabase } from '../config/supabase.js';
+import { supabase, supabaseAdmin } from '../config/supabase.js';
 
 // Admin login
 export const adminLogin = async (req, res) => {
@@ -34,9 +34,18 @@ export const adminLogin = async (req, res) => {
     }
 
     // Generate JWT token
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('[Admin] JWT_SECRET not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error'
+      });
+    }
+    
     const token = jwt.sign(
       { adminId: result.data.id, username: result.data.username },
-      process.env.JWT_SECRET || 'your-secret-key',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 
@@ -73,7 +82,16 @@ export const verifyAdminToken = (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('[Admin] JWT_SECRET not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error'
+      });
+    }
+    
+    const decoded = jwt.verify(token, jwtSecret);
     
     // Check if it's an admin token (has adminId)
     if (!decoded.adminId) {
@@ -98,16 +116,18 @@ export const getAllWithdrawals = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('withdrawals')
-      .select(`
-        *,
-        users:user_id (
-          id,
-          mobile
-        )
-      `)
+      .select('*')
       .order('created_at', { ascending: false });
 
+    // Handle table not existing or relationship errors gracefully
     if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('relationship')) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Withdrawals table not yet created'
+        });
+      }
       throw error;
     }
 
@@ -222,7 +242,15 @@ export const getCommissionStats = async (req, res) => {
       .select('commission')
       .eq('status', 'completed');
 
+    // Handle table not existing gracefully
     if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({
+          success: true,
+          data: { total: 0 },
+          message: 'Commission table not yet created'
+        });
+      }
       throw error;
     }
 
@@ -251,7 +279,15 @@ export const getCommissionHistory = async (req, res) => {
       .eq('status', 'completed')
       .order('created_at', { ascending: false });
 
+    // Handle table not existing gracefully
     if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Commission table not yet created'
+        });
+      }
       throw error;
     }
 
@@ -278,7 +314,15 @@ export const getAddFundsStats = async (req, res) => {
       .select('amount')
       .in('status', ['TXN_SUCCESS', 'success', 'SUCCESS']);
 
+    // Handle table not existing gracefully
     if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({
+          success: true,
+          data: { total: 0 },
+          message: 'Payments table not yet created'
+        });
+      }
       throw error;
     }
 
@@ -303,17 +347,19 @@ export const getAddFundsHistory = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('payments')
-      .select(`
-        *,
-        users:user_id (
-          id,
-          mobile
-        )
-      `)
+      .select('*')
       .in('status', ['TXN_SUCCESS', 'success', 'SUCCESS'])
       .order('created_at', { ascending: false });
 
+    // Handle table not existing or relationship errors gracefully
     if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('relationship')) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Payments table not yet created'
+        });
+      }
       throw error;
     }
 
@@ -324,7 +370,6 @@ export const getAddFundsHistory = async (req, res) => {
       status: payment.status,
       order_id: payment.order_id,
       user_id: payment.user_id,
-      user_mobile: payment.users?.mobile || null,
       created_at: payment.created_at
     }));
 
@@ -334,6 +379,270 @@ export const getAddFundsHistory = async (req, res) => {
     });
   } catch (error) {
     console.error('Get add funds history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Get all users (admin)
+export const getAllUsers = async (req, res) => {
+  try {
+    console.log('[Admin] getAllUsers called');
+    console.log('[Admin] Using supabaseAdmin client:', !!supabaseAdmin);
+    console.log('[Admin] Service role key loaded:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+    
+    // Use admin client to bypass RLS policies
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('id, mobile, balance, is_admin, created_at, updated_at')
+      .order('created_at', { ascending: false });
+
+    console.log('[Admin] Query result:', { 
+      dataLength: data?.length, 
+      error: error?.message, 
+      errorCode: error?.code
+    });
+
+    if (error) {
+      console.error('[Admin] Get all users database error:', error);
+      console.error('[Admin] Error details:', JSON.stringify(error, null, 2));
+      console.error('[Admin] Error code:', error.code);
+      console.error('[Admin] Error message:', error.message);
+      console.error('[Admin] Error hint:', error.hint);
+      
+      // Return the actual error
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch users',
+        error: error.message,
+        errorCode: error.code,
+        hint: error.hint
+      });
+    }
+
+    console.log(`[Admin] Successfully retrieved ${data?.length || 0} users from database`);
+    if (data && data.length > 0) {
+      console.log('[Admin] First user sample:', {
+        id: data[0].id,
+        mobile: data[0].mobile,
+        balance: data[0].balance
+      });
+    }
+
+    res.json({
+      success: true,
+      data: data || []
+    });
+  } catch (error) {
+    console.error('[Admin] Get all users exception:', error);
+    console.error('[Admin] Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Get user details (admin)
+export const getUserDetails = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('id, mobile, balance, is_admin, created_at, updated_at')
+      .eq('id', userId)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get user's game stats
+    let gameStats = { games_played: 0, games_won: 0, total_wagered: 0 };
+    try {
+      const { data: games } = await supabaseAdmin
+        .from('game_results')
+        .select('winner_id, bet_amount')
+        .or(`player1_id.eq.${userId},player2_id.eq.${userId}`);
+
+      if (games) {
+        gameStats.games_played = games.length;
+        gameStats.games_won = games.filter(g => g.winner_id === userId).length;
+        gameStats.total_wagered = games.reduce((sum, g) => sum + (parseFloat(g.bet_amount) || 0), 0);
+      }
+    } catch (e) {
+      // Game stats not available
+    }
+
+    // Get withdrawal history
+    let withdrawals = [];
+    try {
+      const { data } = await supabaseAdmin
+        .from('withdrawals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      withdrawals = data || [];
+    } catch (e) {
+      // Withdrawals not available
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user,
+        gameStats,
+        recentWithdrawals: withdrawals
+      }
+    });
+  } catch (error) {
+    console.error('Get user details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Get game history (admin)
+export const getGameHistory = async (req, res) => {
+  try {
+    const { limit = 50, offset = 0 } = req.query;
+
+    const { data, error } = await supabase
+      .from('game_results')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Game results table not yet created'
+        });
+      }
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      data: data || []
+    });
+  } catch (error) {
+    console.error('Get game history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Get dashboard overview stats (admin)
+export const getDashboardStats = async (req, res) => {
+  try {
+    const stats = {
+      totalCommission: 0,
+      totalAddFunds: 0,
+      pendingWithdrawals: 0,
+      pendingWithdrawalAmount: 0,
+      totalUsers: 0,
+      totalGames: 0,
+      todayCommission: 0,
+      todayGames: 0
+    };
+
+    // Get commission stats
+    try {
+      const { data } = await supabase
+        .from('game_commissions')
+        .select('commission, created_at')
+        .eq('status', 'completed');
+
+      if (data) {
+        const today = new Date().toISOString().split('T')[0];
+        stats.totalCommission = data.reduce((sum, item) => sum + (parseFloat(item.commission) || 0), 0);
+        stats.todayCommission = data
+          .filter(item => item.created_at?.startsWith(today))
+          .reduce((sum, item) => sum + (parseFloat(item.commission) || 0), 0);
+      }
+    } catch (e) {
+      // Commission table may not exist
+    }
+
+    // Get add funds stats
+    try {
+      const { data } = await supabase
+        .from('payments')
+        .select('amount')
+        .in('status', ['TXN_SUCCESS', 'success', 'SUCCESS']);
+
+      if (data) {
+        stats.totalAddFunds = data.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+      }
+    } catch (e) {
+      // Payments table may not exist
+    }
+
+    // Get withdrawal stats
+    try {
+      const { data } = await supabase
+        .from('withdrawals')
+        .select('amount, status')
+        .eq('status', 'pending');
+
+      if (data) {
+        stats.pendingWithdrawals = data.length;
+        stats.pendingWithdrawalAmount = data.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+      }
+    } catch (e) {
+      // Withdrawals table may not exist
+    }
+
+    // Get user count
+    try {
+      const { count } = await supabase
+        .from('users')
+        .select('*', { count: 'exact', head: true });
+
+      stats.totalUsers = count || 0;
+    } catch (e) {
+      // Users table may not exist
+    }
+
+    // Get game count
+    try {
+      const { data } = await supabase
+        .from('game_results')
+        .select('created_at');
+
+      if (data) {
+        const today = new Date().toISOString().split('T')[0];
+        stats.totalGames = data.length;
+        stats.todayGames = data.filter(item => item.created_at?.startsWith(today)).length;
+      }
+    } catch (e) {
+      // Game results table may not exist
+    }
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Get dashboard stats error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

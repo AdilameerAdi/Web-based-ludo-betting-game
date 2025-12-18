@@ -5,12 +5,37 @@ dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
+console.log('[Supabase] Initializing clients...');
+console.log('[Supabase] Service role key present:', !!supabaseServiceKey);
+if (supabaseServiceKey) {
+  console.log('[Supabase] Service role key length:', supabaseServiceKey.length);
+}
+
 export const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Service role client for admin operations (bypasses RLS)
+export const supabaseAdmin = supabaseServiceKey
+  ? (() => {
+      const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+      console.log('[Supabase] ✅ Admin client created with service role key');
+      return adminClient;
+    })()
+  : (() => {
+      console.warn('⚠️  SUPABASE_SERVICE_ROLE_KEY not found. Admin operations may be limited by RLS policies.');
+      console.warn('   Add SUPABASE_SERVICE_ROLE_KEY to your .env file for full admin access.');
+      return supabase; // Fallback to regular client if service key not available
+    })();
 
 // Test connection
 export const testConnection = async () => {

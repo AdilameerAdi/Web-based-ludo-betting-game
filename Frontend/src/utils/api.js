@@ -101,12 +101,24 @@ export const adminApiCall = async (endpoint, method = 'GET', data = null) => {
     const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(result.message || result.error || 'Request failed');
+      const errorMessage = result.message || result.error || result.errorCode || 'Request failed';
+      const error = new Error(errorMessage);
+      error.details = result;
+      error.status = response.status;
+      console.error('[API] Admin API error:', { status: response.status, result });
+      throw error;
     }
 
     return result;
   } catch (error) {
-    throw error;
+    // If it's already our custom error, re-throw it
+    if (error.details) {
+      throw error;
+    }
+    // Otherwise, wrap it
+    const wrappedError = new Error(error.message || 'Network error');
+    wrappedError.originalError = error;
+    throw wrappedError;
   }
 };
 
@@ -161,6 +173,22 @@ export const adminAPI = {
   
   changePassword: async (currentPassword, newPassword) => {
     return adminApiCall('/admin/change-password', 'PUT', { currentPassword, newPassword });
+  },
+
+  getDashboardStats: async () => {
+    return adminApiCall('/admin/dashboard-stats', 'GET');
+  },
+
+  getAllUsers: async () => {
+    return adminApiCall('/admin/users', 'GET');
+  },
+
+  getUserDetails: async (userId) => {
+    return adminApiCall(`/admin/users/${userId}`, 'GET');
+  },
+
+  getGameHistory: async (limit = 50, offset = 0) => {
+    return adminApiCall(`/admin/games?limit=${limit}&offset=${offset}`, 'GET');
   },
 };
 

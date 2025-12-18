@@ -103,7 +103,7 @@ export default function AdminWithdrawals({ user, onBack }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-800 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+        <div className="text-blue-900 text-xl">Loading...</div>
       </div>
     );
   }
@@ -141,13 +141,13 @@ export default function AdminWithdrawals({ user, onBack }) {
                 onClick={() => setFilter(status)}
                 className={`px-4 py-2 rounded-lg font-bold transition-all ${
                   filter === status
-                    ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg'
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-blue-900 shadow-lg'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
                 {status.charAt(0).toUpperCase() + status.slice(1)}
                 {status === 'pending' && pendingCount > 0 && (
-                  <span className="ml-2 bg-red-500 text-white rounded-full px-2 py-0.5 text-xs">
+                  <span className="ml-2 bg-red-500 text-blue-900 rounded-full px-2 py-0.5 text-xs">
                     {pendingCount}
                   </span>
                 )}
@@ -235,14 +235,14 @@ export default function AdminWithdrawals({ user, onBack }) {
                         <button
                           onClick={() => handleStatusUpdate(withdrawal.id, 'approved')}
                           disabled={processing}
-                          className="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
+                          className="flex-1 px-4 py-2 rounded-lg font-bold text-blue-900 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
                         >
                           Approve
                         </button>
                         <button
                           onClick={() => handleStatusUpdate(withdrawal.id, 'rejected')}
                           disabled={processing}
-                          className="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
+                          className="flex-1 px-4 py-2 rounded-lg font-bold text-blue-900 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
                         >
                           Reject
                         </button>
@@ -267,7 +267,7 @@ export default function AdminWithdrawals({ user, onBack }) {
                       <button
                         onClick={() => handleStatusUpdate(withdrawal.id, 'completed')}
                         disabled={processing}
-                        className="w-full px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
+                        className="w-full px-4 py-2 rounded-lg font-bold text-blue-900 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
                       >
                         Mark as Completed (After Sending Money)
                       </button>

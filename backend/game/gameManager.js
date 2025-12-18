@@ -20,14 +20,11 @@ import {
   updatePlayerConnection,
   setWinner
 } from './engine/gameState.js';
-// Database persistence (uncomment when tables are created)
-// import {
-//   saveGameState,
-//   loadGameState,
-//   logGameAction,
-//   processWinnerPayout,
-//   getActiveGameForUser
-// } from './services/gameService.js';
+// Database persistence
+import {
+  saveGameState,
+  processWinnerPayout
+} from './services/gameService.js';
 import { processDiceRoll, toFrontendDiceValue } from './engine/diceLogic.js';
 import { validateMove, computeValidMoves } from './engine/moveValidator.js';
 import {
@@ -207,6 +204,12 @@ export function moveToken(gameId, socketId, tokenId) {
   // Check for game over
   if (result.winner) {
     clearTurnTimer(gameId);
+    
+    // Process winner payout and save game data
+    processWinnerPayout(state).catch(err => {
+      console.error(`[GameManager] Error processing payout for game ${gameId}:`, err);
+    });
+
     return {
       success: true,
       move: formatMoveForClient(move, state),
@@ -255,6 +258,13 @@ export function forfeit(gameId, socketId) {
 
   clearTurnTimer(gameId);
   handleForfeit(state, player.index);
+
+  // Process winner payout and save game data
+  if (state.winner) {
+    processWinnerPayout(state).catch(err => {
+      console.error(`[GameManager] Error processing payout for game ${gameId}:`, err);
+    });
+  }
 
   return {
     success: true,
@@ -481,6 +491,14 @@ function startDisconnectTimer(gameId, playerIndex) {
     if (state && state.status === GAME_STATUS.PAUSED) {
       console.log(`[GameManager] Disconnect timeout for player ${playerIndex} in game ${gameId}`);
       handleDisconnectTimeout(state, playerIndex);
+      
+      // Process winner payout and save game data
+      if (state.winner) {
+        processWinnerPayout(state).catch(err => {
+          console.error(`[GameManager] Error processing payout for game ${gameId}:`, err);
+        });
+      }
+      
       // Emit game over event
       if (global.io) {
         global.io.to(`game_${gameId}`).emit('game_over', {

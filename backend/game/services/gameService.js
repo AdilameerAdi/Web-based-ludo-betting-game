@@ -129,6 +129,68 @@ export async function logGameAction(gameId, action) {
 }
 
 /**
+ * Save game result to game_results table
+ * @param {Object} state - Final game state with winner
+ * @returns {Promise<Object>} - Save result
+ */
+export async function saveGameResult(state) {
+  if (!state.winner) {
+    return { success: false, error: 'No winner to save game result' };
+  }
+
+  try {
+    const winnerId = state.winner.odId;
+    const loser = state.players.find(p => p.odId !== winnerId);
+    const loserId = loser?.odId || null;
+    const player1Id = state.players[0]?.odId || null;
+    const player2Id = state.players[1]?.odId || null;
+
+    // Calculate game duration
+    const gameDurationSeconds = state.endedAt && state.startedAt
+      ? Math.floor((state.endedAt - state.startedAt) / 1000)
+      : null;
+
+    // Determine result type
+    let resultType = 'normal_win';
+    if (state.winner.reason === 'forfeit') {
+      resultType = 'forfeit';
+    } else if (state.winner.reason === 'opponent_disconnect') {
+      resultType = 'timeout';
+    }
+
+    const { error } = await supabase
+      .from('game_results')
+      .insert({
+        game_id: state.gameId,
+        table_id: state.tableId,
+        table_type: 'default',
+        player1_id: player1Id,
+        player2_id: player2Id,
+        winner_id: winnerId,
+        loser_id: loserId,
+        bet_amount: state.betAmount,
+        winner_payout: state.prizePool,
+        commission: state.commission,
+        result_type: resultType,
+        game_duration_seconds: gameDurationSeconds,
+        status: 'completed',
+        created_at: new Date(state.createdAt).toISOString(),
+        completed_at: state.endedAt ? new Date(state.endedAt).toISOString() : new Date().toISOString()
+      });
+
+    if (error) {
+      console.error('Error saving game result:', error);
+      return { success: false, error };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Exception saving game result:', err);
+    return { success: false, error: err };
+  }
+}
+
+/**
  * Process winner payout
  * @param {Object} state - Final game state with winner
  * @returns {Promise<Object>} - Payout result
@@ -166,8 +228,14 @@ export async function processWinnerPayout(state) {
       return { success: false, error: updateError };
     }
 
+    // Save game result
+    await saveGameResult(state);
+
     // Record commission
     await recordCommission(state);
+
+    // Save final game state
+    await saveGameState(state);
 
     console.log(`Paid ${prizeAmount} to winner ${winnerId}`);
     return { success: true, prizeAmount, newBalance };
@@ -183,15 +251,28 @@ export async function processWinnerPayout(state) {
  * @returns {Promise<Object>} - Record result
  */
 export async function recordCommission(state) {
+  if (!state.winner) {
+    return { success: false, error: 'No winner to record commission' };
+  }
+
   try {
+    const winnerId = state.winner.odId;
+    const loser = state.players.find(p => p.odId !== winnerId);
+    const loserId = loser?.odId || null;
+
     const { error } = await supabase
       .from('game_commissions')
       .insert({
         game_id: state.gameId,
         table_id: state.tableId,
-        total_pool: state.totalPool,
-        commission_amount: state.commission,
+        winner_id: winnerId,
+        loser_id: loserId,
+        bet_amount: state.betAmount,
+        total_pot: state.totalPool,
         commission_rate: COMMISSION_RATE,
+        commission: state.commission,
+        winner_payout: state.prizePool,
+        status: 'completed',
         created_at: new Date().toISOString()
       });
 
@@ -288,6 +369,7 @@ export default {
   logGameAction,
   processWinnerPayout,
   recordCommission,
+  saveGameResult,
   getGameHistory,
   getUserGameStats
 };
