@@ -130,13 +130,13 @@ export const createTable = async (req, res) => {
   }
 };
 
-// Get all waiting tables
+// Get all waiting tables (including ready tables that haven't started yet)
 export const getWaitingTables = async (req, res) => {
   try {
     const { data: tables, error } = await supabase
       .from('tables')
       .select('*')
-      .eq('status', 'waiting')
+      .in('status', ['waiting', 'ready'])
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -216,6 +216,8 @@ export const joinTable = async (req, res) => {
     const userId = req.user.userId;
     const { tableId } = req.params;
 
+    console.log(`[API joinTable] User ${userId} attempting to join table ${tableId}`);
+
     // Get table
     const { data: table, error: tableError } = await supabase
       .from('tables')
@@ -224,13 +226,18 @@ export const joinTable = async (req, res) => {
       .single();
 
     if (tableError || !table) {
+      console.log(`[API joinTable] Table ${tableId} not found`);
       return res.status(404).json({
         success: false,
         message: 'Table not found'
       });
     }
 
-    if (table.status !== 'waiting') {
+    console.log(`[API joinTable] Table ${tableId}: status=${table.status}, players=${JSON.stringify(table.players)}`);
+
+    // Allow joining if table is waiting or ready (but not active/finished)
+    if (table.status !== 'waiting' && table.status !== 'ready') {
+      console.log(`[API joinTable] Rejected: status is ${table.status}`);
       return res.status(400).json({
         success: false,
         message: 'Table is not accepting new players'
@@ -244,10 +251,12 @@ export const joinTable = async (req, res) => {
       });
     }
 
+    // If user is already in the table, just return success (idempotent)
     if (table.players && table.players.includes(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'You are already in this table'
+      return res.json({
+        success: true,
+        message: 'Already in this table',
+        data: table
       });
     }
 

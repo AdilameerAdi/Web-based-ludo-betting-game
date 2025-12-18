@@ -110,6 +110,11 @@ export function registerGameHandlers(io, socket) {
         winner: result.winner,
         gameState: result.gameState
       });
+
+      // Cleanup game after a short delay to allow clients to receive the event
+      setTimeout(() => {
+        GameManager.cleanupGame(gameId);
+      }, 5000);
       return;
     }
 
@@ -155,6 +160,11 @@ export function registerGameHandlers(io, socket) {
       winner: result.winner,
       gameState: result.gameState
     });
+
+    // Cleanup game after a short delay to allow clients to receive the event
+    setTimeout(() => {
+      GameManager.cleanupGame(gameId);
+    }, 5000);
   });
 
   /**

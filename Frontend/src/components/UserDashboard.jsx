@@ -13,9 +13,29 @@ export default function UserDashboard({ user, onLogout }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'tableSelection', 'game', 'customTable', 'waitingRoom', 'addFunds', 'paymentStatus', 'withdrawFunds', 'adminWithdrawals'
-  const [selectedTable, setSelectedTable] = useState(null);
+  const [view, setView] = useState(() => {
+    // Check if there's an active game to rejoin
+    const activeGame = localStorage.getItem('activeGame');
+    if (activeGame) {
+      return 'game';
+    }
+    return 'dashboard';
+  });
+  const [selectedTable, setSelectedTable] = useState(() => {
+    // Restore active game table from localStorage
+    const activeGame = localStorage.getItem('activeGame');
+    if (activeGame) {
+      try {
+        return JSON.parse(activeGame);
+      } catch {
+        localStorage.removeItem('activeGame');
+        return null;
+      }
+    }
+    return null;
+  });
   const [balance, setBalance] = useState(0); // Available balance in INR
+  // eslint-disable-next-line no-unused-vars
   const [createdTableLink, setCreatedTableLink] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [theme, setTheme] = useState(() => {
@@ -48,7 +68,7 @@ export default function UserDashboard({ user, onLogout }) {
           // Check if user is admin
           setIsAdmin(result.data.is_admin === true || result.data.is_admin === 'true');
         }
-      } catch (error) {
+      } catch {
         // Handle error silently
       } finally {
         setLoading(false);
@@ -134,19 +154,48 @@ export default function UserDashboard({ user, onLogout }) {
   const handleTableSelect = (table) => {
     setSelectedTable(table);
     setView('game');
+    // Save active game to localStorage for page reload recovery
+    localStorage.setItem('activeGame', JSON.stringify(table));
   };
 
   const handleBackToDashboard = () => {
     setView('dashboard');
     setSelectedTable(null);
+    // Clear active game from localStorage
+    localStorage.removeItem('activeGame');
   };
 
-  const handleGameEnd = (won, table) => {
+  // eslint-disable-next-line no-unused-vars
+  const handleGameEnd = (result) => {
+    // Clear active game from localStorage
+    localStorage.removeItem('activeGame');
     // Handle game end logic (update balance, etc.)
-    // For now, just go back to dashboard
+    // Refresh balance
+    const fetchProfile = async () => {
+      try {
+        const profileResult = await userAPI.getProfile();
+        if (profileResult.success) {
+          setProfile(profileResult.data);
+          setBalance(profileResult.data.balance || 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch profile:', error);
+      }
+    };
+    fetchProfile();
+    // Go back to dashboard after a delay
     setTimeout(() => {
       handleBackToDashboard();
     }, 3000);
+  };
+
+  // Handle explicit leave game (forfeit)
+  const handleLeaveGame = () => {
+    // This will be called when user clicks Leave button
+    // The LudoGameV2 component will handle emitting the forfeit event
+    localStorage.removeItem('activeGame');
+    setView('dashboard');
+    setSelectedTable(null);
   };
 
   const handleCustomTable = () => {
@@ -168,6 +217,8 @@ export default function UserDashboard({ user, onLogout }) {
   const handleJoinTable = (table) => {
     setSelectedTable(table);
     setView('game');
+    // Save active game to localStorage for page reload recovery
+    localStorage.setItem('activeGame', JSON.stringify(table));
   };
 
   if (loading) {
@@ -222,7 +273,7 @@ export default function UserDashboard({ user, onLogout }) {
 
   // Show game screen
   if (view === 'game' && selectedTable) {
-    return <LudoGameV2 table={selectedTable} onBack={handleBackToDashboard} onGameEnd={handleGameEnd} />;
+    return <LudoGameV2 table={selectedTable} onBack={handleBackToDashboard} onGameEnd={handleGameEnd} onLeave={handleLeaveGame} />;
   }
 
   const isDark = theme === 'dark';

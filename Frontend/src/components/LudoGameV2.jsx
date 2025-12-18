@@ -7,14 +7,19 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
  * LudoGameV2 Component
  * Uses server-authoritative game engine for secure multiplayer
  */
-const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
-  const [socket, setSocket] = useState(null);
+const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
+  const socketRef = useRef(null);
+  // eslint-disable-next-line no-unused-vars
   const [gameState, setGameState] = useState(null);
   const [playerInfo, setPlayerInfo] = useState(null);
   const [message, setMessage] = useState('');
   const [isConnected, setIsConnected] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [disconnectCountdown, setDisconnectCountdown] = useState(null);
   const gameInitializedRef = useRef(false);
   const scriptsLoadedRef = useRef(false);
+  const gameIdRef = useRef(null);
+  const disconnectIntervalRef = useRef(null);
 
   useEffect(() => {
     if (!table) return;
@@ -64,7 +69,7 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
       reconnectionAttempts: 5
     });
 
-    setSocket(gameSocket);
+    socketRef.current = gameSocket;
 
     gameSocket.on('connect', () => {
       console.log('Game socket connected:', gameSocket.id);
@@ -85,6 +90,26 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
             odId: userId
           });
         }
+
+        // Request game state in case we missed the game_initialized event
+        // (happens when navigating from WaitingRoom with a new socket)
+        // Retry multiple times with increasing delays
+        const requestGameState = (attempt = 1) => {
+          if (!gameInitializedRef.current && attempt <= 5) {
+            console.log(`Requesting game state for table: ${table.id} (attempt ${attempt})`);
+            gameSocket.emit('request_game_state', { tableId: table.id, userId });
+
+            // Retry after delay if still not initialized
+            setTimeout(() => {
+              if (!gameInitializedRef.current) {
+                requestGameState(attempt + 1);
+              }
+            }, 1000 * attempt); // 1s, 2s, 3s, 4s, 5s delays
+          }
+        };
+
+        // Start requesting after a short delay
+        setTimeout(() => requestGameState(1), 500);
       }
     });
 
@@ -103,9 +128,44 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
         playerNo: data.playerNo,
         opponentName: data.opponentName
       });
+      gameIdRef.current = data.gameId;
 
       // Initialize the V2 game script with the initialization data
       initializeGameScript(gameSocket, table.id, userId, table.players, data);
+    });
+
+    // Listen for opponent disconnect with countdown
+    gameSocket.on('game_opponent_disconnected', (data) => {
+      console.log('Opponent disconnected:', data);
+      const timeout = data.reconnectTimeout || 20000;
+      let remaining = Math.ceil(timeout / 1000);
+      setDisconnectCountdown(remaining);
+
+      // Clear any existing interval first
+      if (disconnectIntervalRef.current) {
+        clearInterval(disconnectIntervalRef.current);
+      }
+
+      disconnectIntervalRef.current = setInterval(() => {
+        remaining -= 1;
+        setDisconnectCountdown(remaining);
+        if (remaining <= 0) {
+          clearInterval(disconnectIntervalRef.current);
+          disconnectIntervalRef.current = null;
+          setDisconnectCountdown(null);
+        }
+      }, 1000);
+    });
+
+    // Listen for opponent reconnect - immediately clear countdown
+    gameSocket.on('game_opponent_reconnected', (data) => {
+      console.log('Opponent reconnected:', data);
+      // Immediately clear the countdown interval and hide the message
+      if (disconnectIntervalRef.current) {
+        clearInterval(disconnectIntervalRef.current);
+        disconnectIntervalRef.current = null;
+      }
+      setDisconnectCountdown(null);
     });
 
     // Listen for game state updates
@@ -158,13 +218,27 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
       console.log('Game over:', data);
       setGameState(data.gameState);
 
+      // Clear active game from localStorage
+      localStorage.removeItem('activeGame');
+
       if (onGameEnd) {
         onGameEnd({
           winner: data.winner,
           reason: data.reason,
-          isWinner: data.winner.playerIndex === playerInfo?.index
+          isWinner: data.winner?.playerIndex === playerInfo?.index
         });
       }
+    });
+
+    // Listen for game state error
+    gameSocket.on('game_state_error', (data) => {
+      console.error('Game state error:', data.message);
+      setMessage(`Error: ${data.message}. Please go back and try again.`);
+    });
+
+    // Debug: Log all incoming events
+    gameSocket.onAny((event, ...args) => {
+      console.log(`[Socket Event] ${event}:`, args);
     });
 
     // Function to initialize game script
@@ -251,13 +325,81 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
       gameSocket.off('game_state_update');
       gameSocket.off('game_reconnected');
       gameSocket.off('game_over');
+      gameSocket.off('game_state_error');
+      gameSocket.off('game_opponent_disconnected');
+      gameSocket.off('game_opponent_reconnected');
+      gameSocket.offAny();
+      gameSocket.disconnect();
     };
   }, [table]);
 
+  // Handle leave game (forfeit)
+  const handleLeaveGame = () => {
+    setShowLeaveConfirm(true);
+  };
+
+  const confirmLeaveGame = () => {
+    if (socketRef.current && gameIdRef.current) {
+      // Emit forfeit to server
+      socketRef.current.emit('game_forfeit', { gameId: gameIdRef.current });
+    }
+    // Clear active game from localStorage
+    localStorage.removeItem('activeGame');
+    setShowLeaveConfirm(false);
+    if (onLeave) {
+      onLeave();
+    }
+  };
+
+  const cancelLeaveGame = () => {
+    setShowLeaveConfirm(false);
+  };
+
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
-      {/* Connection Status */}
-      {!isConnected && (
+      {/* Loading/Connecting State */}
+      {!playerInfo && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.9)',
+          color: 'white',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10001
+        }}>
+          <div style={{ fontSize: '24px', marginBottom: '20px' }}>
+            {isConnected ? '🎲 Loading game...' : '🔌 Connecting...'}
+          </div>
+          <div style={{ fontSize: '14px', color: '#aaa', marginBottom: '20px', textAlign: 'center', padding: '0 20px' }}>
+            {message || 'Please wait while we set up your game'}
+          </div>
+          {message && message.includes('Error') && onBack && (
+            <button
+              onClick={onBack}
+              style={{
+                padding: '10px 30px',
+                fontSize: '16px',
+                backgroundColor: '#f44336',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+            >
+              Go Back
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Connection Status (only show after game initialized) */}
+      {!isConnected && playerInfo && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -289,6 +431,116 @@ const LudoGameV2 = ({ table, onBack, onGameEnd }) => {
           <div>You: {playerInfo.color === 'r' ? 'Red' : 'Yellow'}</div>
           <div>Opponent: {playerInfo.opponentName || 'Player'}</div>
           <div>Bet: ₹{table?.betAmount || table?.bet_amount}</div>
+          <button
+            onClick={handleLeaveGame}
+            style={{
+              marginTop: '10px',
+              padding: '8px 16px',
+              backgroundColor: '#f44336',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              width: '100%'
+            }}
+          >
+            🚪 Leave Game
+          </button>
+        </div>
+      )}
+
+      {/* Opponent Disconnect Countdown */}
+      {disconnectCountdown !== null && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: 'rgba(0,0,0,0.9)',
+          color: 'white',
+          padding: '30px 40px',
+          borderRadius: '15px',
+          zIndex: 10002,
+          textAlign: 'center',
+          boxShadow: '0 0 30px rgba(0,0,0,0.5)'
+        }}>
+          <div style={{ fontSize: '24px', marginBottom: '15px' }}>⚠️ Opponent Disconnected</div>
+          <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#ff9800', marginBottom: '15px' }}>
+            {disconnectCountdown}s
+          </div>
+          <div style={{ fontSize: '14px', color: '#aaa' }}>
+            Waiting for opponent to reconnect...
+          </div>
+          <div style={{ fontSize: '12px', color: '#888', marginTop: '10px' }}>
+            You will win if they don't return in time
+          </div>
+        </div>
+      )}
+
+      {/* Leave Confirmation Modal */}
+      {showLeaveConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10003
+        }}>
+          <div style={{
+            backgroundColor: '#1a1a2e',
+            padding: '30px',
+            borderRadius: '15px',
+            textAlign: 'center',
+            maxWidth: '400px',
+            boxShadow: '0 0 30px rgba(0,0,0,0.5)'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>🚪</div>
+            <div style={{ fontSize: '24px', color: 'white', marginBottom: '15px', fontWeight: 'bold' }}>
+              Leave Game?
+            </div>
+            <div style={{ fontSize: '14px', color: '#aaa', marginBottom: '25px' }}>
+              If you leave, you will forfeit the game and your opponent will win the bet of ₹{table?.betAmount || table?.bet_amount}.
+            </div>
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button
+                onClick={cancelLeaveGame}
+                style={{
+                  padding: '12px 30px',
+                  backgroundColor: '#4CAF50',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                Stay in Game
+              </button>
+              <button
+                onClick={confirmLeaveGame}
+                style={{
+                  padding: '12px 30px',
+                  backgroundColor: '#f44336',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                Leave & Forfeit
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

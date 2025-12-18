@@ -384,7 +384,7 @@ export function getGameState(gameId, socketId) {
  * Clean up finished game
  * @param {string} gameId - Game ID
  */
-export function cleanupGame(gameId) {
+export async function cleanupGame(gameId) {
   const state = activeGames.get(gameId);
   if (!state) return;
 
@@ -397,6 +397,27 @@ export function cleanupGame(gameId) {
   state.players.forEach(player => {
     socketToGame.delete(player.socketId);
   });
+
+  // Delete the table from database
+  if (state.tableId) {
+    try {
+      const { supabase } = await import('../config/supabase.js');
+
+      // Update table status to 'finished' or delete it
+      const { error } = await supabase
+        .from('tables')
+        .delete()
+        .eq('id', state.tableId);
+
+      if (error) {
+        console.error(`[GameManager] Error deleting table ${state.tableId}:`, error);
+      } else {
+        console.log(`[GameManager] Table ${state.tableId} deleted from database`);
+      }
+    } catch (err) {
+      console.error(`[GameManager] Error cleaning up table ${state.tableId}:`, err);
+    }
+  }
 
   // Remove game (in production, archive to database first)
   activeGames.delete(gameId);
@@ -469,6 +490,10 @@ function startDisconnectTimer(gameId, playerIndex) {
           gameState: serializeForClient(state)
         });
       }
+      // Cleanup game after a short delay to allow clients to receive the event
+      setTimeout(() => {
+        cleanupGame(gameId);
+      }, 5000);
     }
   }, TIMING.RECONNECT_TIMEOUT);
 

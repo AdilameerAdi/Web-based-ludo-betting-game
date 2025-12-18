@@ -59,7 +59,7 @@ export const TOKEN_AREA = {
 export const TIMING = {
   TURN_TIMEOUT: 30000,           // 30 seconds per turn
   TURN_WARNING: 10000,           // Warning at 10 seconds remaining
-  RECONNECT_TIMEOUT: 60000,      // 60 seconds to reconnect
+  RECONNECT_TIMEOUT: 20000,      // 20 seconds to reconnect before forfeit
   ACTION_COOLDOWN: 500,          // Minimum time between actions
   ANIMATION_DELAY: 500           // Delay for animations
 };

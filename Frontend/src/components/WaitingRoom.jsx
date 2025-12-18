@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
+// eslint-disable-next-line no-unused-vars
 import { userAPI } from '../utils/api';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
@@ -9,6 +10,7 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem('theme');
     return savedTheme || 'dark';
@@ -30,32 +32,97 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
 
     // Listen for new table created
     newSocket.on('table_created', (table) => {
+      console.log('[WaitingRoom] table_created received:', table.id);
+      // Normalize table object
+      const normalizedTable = {
+        ...table,
+        creator_id: table.creator_id || table.creatorId,
+        creatorId: table.creatorId || table.creator_id,
+        bet_amount: table.bet_amount || table.betAmount,
+        betAmount: table.betAmount || table.bet_amount,
+      };
       setTables(prev => {
         // Check if table already exists
-        const exists = prev.find(t => t.id === table.id);
+        const exists = prev.find(t => t.id === normalizedTable.id);
         if (exists) {
-          return prev.map(t => t.id === table.id ? table : t);
+          return prev.map(t => t.id === normalizedTable.id ? normalizedTable : t);
         }
-        return [table, ...prev];
+        return [normalizedTable, ...prev];
       });
     });
 
     // Listen for table updates
     newSocket.on('table_updated', (table) => {
-      setTables(prev => prev.map(t => t.id === table.id ? table : t));
+      console.log('[WaitingRoom] table_updated received:', table.id, 'players:', table.players?.length);
+      // Normalize table object to have both camelCase and snake_case properties
+      const normalizedTable = {
+        ...table,
+        creator_id: table.creator_id || table.creatorId,
+        creatorId: table.creatorId || table.creator_id,
+        bet_amount: table.bet_amount || table.betAmount,
+        betAmount: table.betAmount || table.bet_amount,
+        created_at: table.created_at || table.createdAt,
+        createdAt: table.createdAt || table.created_at,
+      };
+      setTables(prev => prev.map(t => t.id === normalizedTable.id ? normalizedTable : t));
+    });
+
+    // Listen for player joined
+    newSocket.on('player_joined', ({ table, userId: joinedUserId }) => {
+      console.log('[WaitingRoom] player_joined received:', table.id, 'by user:', joinedUserId);
+      const normalizedTable = {
+        ...table,
+        creator_id: table.creator_id || table.creatorId,
+        creatorId: table.creatorId || table.creator_id,
+        bet_amount: table.bet_amount || table.betAmount,
+        betAmount: table.betAmount || table.bet_amount,
+      };
+      setTables(prev => prev.map(t => t.id === normalizedTable.id ? normalizedTable : t));
     });
 
     // Listen for table removed
     newSocket.on('table_removed', ({ tableId }) => {
-      setTables(prev => prev.filter(t => t.id !== tableId));
+      console.log('[WaitingRoom] table_removed received:', tableId);
+      // Get current user ID
+      const token = localStorage.getItem('token');
+      let currentUserId = null;
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          currentUserId = payload.userId;
+        } catch (e) {
+          console.error('Failed to decode token:', e);
+        }
+      }
+      currentUserId = currentUserId || user?.id || user?.userId;
+
+      // Only remove the table if user is NOT a player in it
+      // This prevents premature removal when both players are waiting
+      setTables(prev => {
+        const tableToRemove = prev.find(t => t.id === tableId);
+        if (tableToRemove && tableToRemove.players && tableToRemove.players.includes(currentUserId)) {
+          console.log('[WaitingRoom] Ignoring table_removed - user is a player in this table');
+          return prev;
+        }
+        return prev.filter(t => t.id !== tableId);
+      });
     });
 
     // Listen for table ready (when second player joins)
     newSocket.on('table_ready', (table) => {
-      // Remove table from waiting room when it becomes ready
-      setTables(prev => prev.filter(t => t.id !== table.id));
-      
-      // If current user is in this table, they can start the game
+      console.log('[WaitingRoom] table_ready received:', table.id, 'players:', table.players);
+      // Normalize table object
+      const normalizedTable = {
+        ...table,
+        creator_id: table.creator_id || table.creatorId,
+        creatorId: table.creatorId || table.creator_id,
+        bet_amount: table.bet_amount || table.betAmount,
+        betAmount: table.betAmount || table.bet_amount,
+      };
+      // Update the table in the list (don't remove - it stays until game starts)
+      setTables(prev => prev.map(t => t.id === normalizedTable.id ? normalizedTable : t));
+
+      // If current user is in this table, join the table room
       const token = localStorage.getItem('token');
       let userId = null;
       if (token) {
@@ -67,14 +134,29 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
         }
       }
       userId = userId || user?.id || user?.userId;
-      if (table.players && table.players.includes(userId)) {
-        // Table is ready, user can start game
-        // Optionally auto-navigate or show a notification
+      if (normalizedTable.players && normalizedTable.players.includes(userId)) {
+        // Join the table room so we receive game_started event
+        newSocket.emit('join_table', { tableId: normalizedTable.id, userId });
+        console.log(`Joined table room after table_ready: ${normalizedTable.id}`);
       }
+    });
+
+    // Listen for all players ready (both players are in socket room)
+    // eslint-disable-next-line no-unused-vars
+    newSocket.on('all_players_ready', ({ tableId, table }) => {
+      console.log('[WaitingRoom] all_players_ready received:', tableId);
+      // Mark the table as truly ready for starting
+      setTables(prev => prev.map(t => {
+        if (t.id === tableId) {
+          return { ...t, socketReady: true };
+        }
+        return t;
+      }));
     });
 
     // Listen for game started
     newSocket.on('game_started', (table) => {
+      console.log('[WaitingRoom] game_started received:', table.id, 'players:', table.players);
       setTables(prev => prev.filter(t => t.id !== table.id));
       // If current user is in this table, navigate to game
       const token = localStorage.getItem('token');
@@ -88,14 +170,49 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
         }
       }
       userId = userId || user?.id || user?.userId;
+      console.log('[WaitingRoom] Checking if user', userId, 'is in table players:', table.players);
       if (table.players && table.players.includes(userId) && onJoinTable) {
+        console.log('[WaitingRoom] User is in table, navigating to game');
         onJoinTable(table);
       }
     });
 
     // Listen for table timeout
-    newSocket.on('table_timeout', ({ tableId }) => {
+    newSocket.on('table_timeout', ({ tableId, message }) => {
+      console.log('[WaitingRoom] table_timeout received:', tableId, message);
       setTables(prev => prev.filter(t => t.id !== tableId));
+      // Show alert with the timeout message
+      if (message) {
+        alert(message);
+      } else {
+        alert('Table timed out after 2 minutes. Your balance has been refunded.');
+      }
+    });
+
+    // Listen for start game error
+    newSocket.on('start_game_error', ({ tableId, message }) => {
+      console.log('[WaitingRoom] start_game_error received:', tableId, message);
+      alert(`Failed to start game: ${message}`);
+    });
+
+    // Listen for table joined confirmation
+    newSocket.on('table_joined', ({ table, userId: joinedUserId }) => {
+      console.log('[WaitingRoom] table_joined received:', table.id, 'for user:', joinedUserId);
+      // Update the table in the list
+      const normalizedTable = {
+        ...table,
+        creator_id: table.creator_id || table.creatorId,
+        creatorId: table.creatorId || table.creator_id,
+        bet_amount: table.bet_amount || table.betAmount,
+        betAmount: table.betAmount || table.bet_amount,
+      };
+      setTables(prev => prev.map(t => t.id === normalizedTable.id ? normalizedTable : t));
+    });
+
+    // Listen for join errors
+    newSocket.on('join_error', ({ message }) => {
+      console.log('[WaitingRoom] join_error received:', message);
+      alert(`Join error: ${message}`);
     });
 
     // Fetch initial tables from API
@@ -109,6 +226,29 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
         const result = await response.json();
         if (result.success) {
           setTables(result.data || []);
+
+          // Join table rooms for tables where user is already a player
+          const token = localStorage.getItem('token');
+          let userId = null;
+          if (token) {
+            try {
+              const payload = JSON.parse(atob(token.split('.')[1]));
+              userId = payload.userId;
+            } catch (e) {
+              console.error('Failed to decode token:', e);
+            }
+          }
+          userId = userId || user?.id || user?.userId;
+
+          if (userId && result.data) {
+            result.data.forEach(table => {
+              if (table.players && table.players.includes(userId)) {
+                // Join the table room
+                newSocket.emit('join_table', { tableId: table.id, userId });
+                console.log(`Joined table room on load: ${table.id}`);
+              }
+            });
+          }
         }
       } catch (error) {
         console.error('Failed to fetch tables:', error);
@@ -128,6 +268,8 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
 
   const handleJoinTable = async (table) => {
     try {
+      console.log('[WaitingRoom] handleJoinTable called for table:', table.id);
+
       const response = await fetch(`${API_BASE_URL}/tables/${table.id}/join`, {
         method: 'POST',
         headers: {
@@ -142,6 +284,8 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
         return;
       }
 
+      console.log('[WaitingRoom] API join successful:', result.data);
+
       // Get user ID from token
       const token = localStorage.getItem('token');
       let userId = null;
@@ -155,28 +299,34 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
       }
       userId = userId || user?.id || user?.userId;
 
-      // Deduct balance when joining
-      const { data: updatedUser } = await fetch(`${API_BASE_URL}/users/profile`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      }).then(r => r.json());
-
-      // Emit socket event
+      // CRITICAL: Emit socket join_table event IMMEDIATELY after API success
+      // This ensures the socket-user mapping is set up on the server
       if (socket) {
+        console.log('[WaitingRoom] Emitting join_table for user:', userId);
         socket.emit('join_table', {
           tableId: table.id,
           userId: userId
         });
       }
 
-      // If table is now full (2 players), it will be removed from waiting room
-      // Wait a moment for socket update, then navigate to game if user is in it
-      if (result.data.players && result.data.players.length >= 2) {
-        // Table will be removed from waiting room via socket event
-        // User can start the game from the table ready notification
+      // Update local table state with the result from API
+      if (result.data) {
+        const normalizedTable = {
+          ...result.data,
+          id: result.data.id,
+          creator_id: result.data.creator_id || result.data.creatorId,
+          creatorId: result.data.creatorId || result.data.creator_id,
+          bet_amount: result.data.bet_amount || result.data.betAmount,
+          betAmount: result.data.betAmount || result.data.bet_amount,
+          players: result.data.players || [],
+          status: result.data.status || 'ready'
+        };
+        setTables(prev => prev.map(t => t.id === table.id ? normalizedTable : t));
       }
+
+      console.log('[WaitingRoom] Join complete, waiting for server events');
     } catch (error) {
+      console.error('[WaitingRoom] Join error:', error);
       alert('Failed to join table: ' + error.message);
     }
   };
@@ -272,11 +422,20 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
               const maskedPhone = maskPhone(table.creatorMobile || table.creatorName || '');
               
               const handleStartGame = () => {
+                console.log('[WaitingRoom] handleStartGame called for table:', table.id, 'players:', table.players, 'socketReady:', table.socketReady);
                 if (socket && table.players.length === 2) {
-                  socket.emit('start_game', { tableId: table.id });
-                  if (onJoinTable) {
-                    onJoinTable(table);
-                  }
+                  // First join the table room (in case we're not already in it)
+                  console.log('[WaitingRoom] Emitting join_table before start_game');
+                  socket.emit('join_table', { tableId: table.id, userId });
+
+                  // Wait a bit longer to ensure both sockets are in the room
+                  setTimeout(() => {
+                    // Emit start_game - navigation will happen via game_started event
+                    console.log('[WaitingRoom] Emitting start_game');
+                    socket.emit('start_game', { tableId: table.id });
+                  }, 300); // Increased from 100ms to 300ms
+                } else {
+                  console.log('[WaitingRoom] Cannot start game - socket:', !!socket, 'players:', table.players?.length);
                 }
               };
               
