@@ -62,11 +62,18 @@ export default function AddFunds({ user, onBack, onSuccess }) {
       }
 
       if (result.success && result.data) {
+        console.log('[AddFunds] Payment initiated, redirecting to Paytm...', {
+          paymentUrl: result.data.paymentUrl,
+          orderId: result.data.orderId,
+          amount: result.data.amount
+        });
+
         // Create and submit Paytm payment form
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = result.data.paymentUrl;
         form.target = '_self';
+        form.id = 'paytm-payment-form';
 
         // Add all parameters to form
         Object.keys(result.data.params).forEach((key) => {
@@ -77,8 +84,19 @@ export default function AddFunds({ user, onBack, onSuccess }) {
           form.appendChild(input);
         });
 
+        // Log form data for debugging
+        console.log('[AddFunds] Form parameters:', Object.keys(result.data.params));
+
         document.body.appendChild(form);
-        form.submit();
+        
+        // Submit form
+        try {
+          form.submit();
+        } catch (err) {
+          console.error('[AddFunds] Form submission error:', err);
+          setLoading(false);
+          setError('Failed to redirect to payment gateway. Please try again.');
+        }
       }
     } catch (err) {
       setLoading(false);

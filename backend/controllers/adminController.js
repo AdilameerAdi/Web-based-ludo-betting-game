@@ -1,6 +1,7 @@
 import { Admin } from '../models/Admin.js';
 import jwt from 'jsonwebtoken';
 import { supabase, supabaseAdmin } from '../config/supabase.js';
+import { creditWallet, TRANSACTION_TYPES } from '../services/walletService.js';
 
 // Admin login
 export const adminLogin = async (req, res) => {
@@ -174,21 +175,54 @@ export const updateWithdrawalStatus = async (req, res) => {
       });
     }
 
-    // If rejecting, refund the balance
+    // If rejecting, refund the balance using wallet service
     if (status === 'rejected' && withdrawal.status === 'pending') {
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', withdrawal.user_id)
-        .single();
+      const refundResult = await creditWallet(
+        withdrawal.user_id,
+        withdrawal.amount,
+        TRANSACTION_TYPES.WITHDRAWAL_REFUND,
+        withdrawalId,
+        {
+          withdrawal_id: withdrawalId,
+          reason: 'admin_rejection',
+          admin_id: adminId,
+          admin_notes: adminNotes
+        }
+      );
 
-      if (!userError && userData) {
-        const currentBalance = userData.balance || 0;
-        const newBalance = currentBalance + withdrawal.amount;
-        await supabase
-          .from('users')
-          .update({ balance: newBalance })
-          .eq('id', withdrawal.user_id);
+      if (refundResult.success) {
+        console.log(`[Admin] Refunded ${withdrawal.amount} to user ${withdrawal.user_id} for rejected withdrawal`);
+        
+        // Emit real-time wallet update
+        if (global.io) {
+          global.io.to(`user_${withdrawal.user_id}`).emit('wallet_updated', {
+            balance: refundResult.newBalance,
+            amount: withdrawal.amount,
+            type: 'credit',
+            reason: 'withdrawal_refund',
+            withdrawalId: withdrawalId
+          });
+          
+          // Also emit withdrawal status update
+          global.io.to(`user_${withdrawal.user_id}`).emit('withdrawal_status_updated', {
+            withdrawalId: withdrawalId,
+            status: 'rejected',
+            message: 'Withdrawal request rejected. Amount refunded to wallet.'
+          });
+        }
+      } else {
+        console.error('[Admin] Failed to refund withdrawal:', refundResult.error);
+      }
+    }
+
+    // If approving, notify user
+    if (status === 'approved' && withdrawal.status === 'pending') {
+      if (global.io) {
+        global.io.to(`user_${withdrawal.user_id}`).emit('withdrawal_status_updated', {
+          withdrawalId: withdrawalId,
+          status: 'approved',
+          message: 'Withdrawal accepted. Amount will be credited within 10-20 minutes.'
+        });
       }
     }
 

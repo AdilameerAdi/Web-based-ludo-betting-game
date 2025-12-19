@@ -11,6 +11,7 @@ import withdrawalRoutes from './routes/withdrawalRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { testConnection } from './config/supabase.js';
 import morgan from 'morgan';
+import { debitWallet, TRANSACTION_TYPES } from './services/walletService.js';
 
 // Import game engine
 import GameManager from './game/gameManager.js';
@@ -909,20 +910,61 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Deduct balances
-      const [balanceUpdate1, balanceUpdate2] = await Promise.all([
-        supabase.from('users').update({ balance: user1Data.data.balance - tableAmount }).eq('id', player1.userId),
-        supabase.from('users').update({ balance: user2Data.data.balance - tableAmount }).eq('id', player2.userId)
+      // Deduct balances using wallet service (atomic with transaction logging)
+      const [debitResult1, debitResult2] = await Promise.all([
+        debitWallet(
+          player1.userId,
+          tableAmount,
+          TRANSACTION_TYPES.GAME_BET,
+          tableId,
+          {
+            game_type: 'default_table',
+            table_id: tableId,
+            opponent_id: player2.userId
+          }
+        ),
+        debitWallet(
+          player2.userId,
+          tableAmount,
+          TRANSACTION_TYPES.GAME_BET,
+          tableId,
+          {
+            game_type: 'default_table',
+            table_id: tableId,
+            opponent_id: player1.userId
+          }
+        )
       ]);
 
-      if (balanceUpdate1.error || balanceUpdate2.error) {
-        console.error('Error deducting balance:', balanceUpdate1.error || balanceUpdate2.error);
+      if (!debitResult1.success || !debitResult2.success) {
+        console.error('[Matchmaking] Error deducting balance:', debitResult1.error || debitResult2.error);
         await supabase.from('tables').delete().eq('id', tableId);
         queue.unshift(player1, player2);
         matchmakingQueues.set(tableAmount, queue);
         matchingLocks.delete(tableAmount);
+        
+        // Notify players
+        io.to(player1.socketId).emit('match_error', { message: 'Failed to deduct balance' });
+        io.to(player2.socketId).emit('match_error', { message: 'Failed to deduct balance' });
         return;
       }
+
+      // Emit wallet updates
+      io.to(`user_${player1.userId}`).emit('wallet_updated', {
+        balance: debitResult1.newBalance,
+        amount: -tableAmount,
+        type: 'debit',
+        reason: 'game_bet',
+        tableId: tableId
+      });
+
+      io.to(`user_${player2.userId}`).emit('wallet_updated', {
+        balance: debitResult2.newBalance,
+        amount: -tableAmount,
+        type: 'debit',
+        reason: 'game_bet',
+        tableId: tableId
+      });
 
       // Update table status
       await supabase.from('tables').update({ status: 'active' }).eq('id', tableId);

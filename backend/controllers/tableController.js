@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase.js';
+import { debitWallet, TRANSACTION_TYPES } from '../services/walletService.js';
 
 // Create a custom table
 export const createTable = async (req, res) => {
@@ -96,14 +97,24 @@ export const createTable = async (req, res) => {
       });
     }
 
-    // Deduct bet amount from user balance
-    const { error: balanceError } = await supabase
-      .from('users')
-      .update({ balance: balance - betAmount })
-      .eq('id', userId);
+    // Deduct bet amount using wallet service
+    const debitResult = await debitWallet(
+      userId,
+      betAmount,
+      TRANSACTION_TYPES.GAME_BET,
+      tableId,
+      {
+        game_type: 'custom_table',
+        table_id: tableId,
+        creator: true
+      }
+    );
 
-    if (balanceError) {
-      console.error('Balance update error:', balanceError);
+    if (!debitResult.success) {
+      console.error('[Table] Balance deduction error:', debitResult.error);
+      
+      // Delete table if balance deduction failed
+      await supabase.from('tables').delete().eq('id', tableId);
       // Rollback table creation
       await supabase.from('tables').delete().eq('id', tableId);
       return res.status(500).json({
@@ -274,25 +285,36 @@ export const joinTable = async (req, res) => {
       });
     }
 
-    const balance = userData.balance || 0;
+    // Check balance and deduct using wallet service
+    const { getWalletBalance } = await import('../services/walletService.js');
+    const balanceResult = await getWalletBalance(userId);
     
-    if (balance < table.bet_amount) {
+    if (!balanceResult.success || balanceResult.balance < table.bet_amount) {
       return res.status(400).json({
         success: false,
         message: 'Insufficient balance'
       });
     }
 
-    // Deduct bet amount from user balance
-    const { error: balanceError } = await supabase
-      .from('users')
-      .update({ balance: balance - table.bet_amount })
-      .eq('id', userId);
+    // Deduct bet amount using wallet service
+    const debitResult = await debitWallet(
+      userId,
+      table.bet_amount,
+      TRANSACTION_TYPES.GAME_BET,
+      tableId,
+      {
+        game_type: 'custom_table',
+        table_id: tableId,
+        joining: true
+      }
+    );
 
-    if (balanceError) {
+    if (!debitResult.success) {
       return res.status(500).json({
         success: false,
-        message: 'Failed to deduct balance'
+        message: debitResult.error === 'Insufficient balance' 
+          ? 'Insufficient balance' 
+          : 'Failed to deduct balance'
       });
     }
 
@@ -313,11 +335,18 @@ export const joinTable = async (req, res) => {
       .single();
 
     if (updateError) {
-      // Rollback balance deduction
-      await supabase
-        .from('users')
-        .update({ balance: balance })
-        .eq('id', userId);
+      // Rollback balance deduction by crediting back
+      const { creditWallet } = await import('../services/walletService.js');
+      await creditWallet(
+        userId,
+        table.bet_amount,
+        TRANSACTION_TYPES.WITHDRAWAL_REFUND, // Using refund type for rollback
+        `rollback_${tableId}`,
+        {
+          reason: 'table_join_failed',
+          original_table_id: tableId
+        }
+      );
       
       return res.status(500).json({
         success: false,

@@ -1,6 +1,7 @@
 import { Withdrawal } from '../models/Withdrawal.js';
 import { User } from '../models/User.js';
 import { supabase } from '../config/supabase.js';
+import { debitWallet, creditWallet, getWalletBalance, TRANSACTION_TYPES } from '../services/walletService.js';
 
 // Helper function to check if user is admin
 const isAdmin = async (userId) => {
@@ -30,6 +31,14 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
+    // Paytm-only validation
+    if (paymentMethod.toLowerCase() !== 'paytm') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only Paytm withdrawal is supported'
+      });
+    }
+
     if (amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -37,28 +46,42 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
-    // Check user balance
-    const userResult = await User.findById(userId);
-    if (!userResult.success) {
-      return res.status(404).json({
+    // Check for existing pending withdrawal
+    const { data: pendingWithdrawals, error: pendingError } = await supabase
+      .from('withdrawals')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .limit(1);
+
+    if (!pendingError && pendingWithdrawals && pendingWithdrawals.length > 0) {
+      return res.status(400).json({
         success: false,
-        message: 'User not found'
+        message: 'You already have a pending withdrawal request. Please wait for it to be processed.'
       });
     }
 
-    const userBalance = userResult.data.balance || 0;
-    if (userBalance < amount) {
+    // Check user balance using wallet service
+    const balanceResult = await getWalletBalance(userId);
+    if (!balanceResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to check balance'
+      });
+    }
+
+    if (balanceResult.balance < amount) {
       return res.status(400).json({
         success: false,
         message: 'Insufficient balance'
       });
     }
 
-    // Create withdrawal request
+    // Create withdrawal request first
     const result = await Withdrawal.create({
       userId,
       amount,
-      paymentMethod,
+      paymentMethod: 'paytm', // Force Paytm
       accountDetails
     });
 
@@ -70,17 +93,53 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
-    // Deduct balance immediately (will be refunded if rejected)
-    const newBalance = userBalance - amount;
-    await User.update(userId, { balance: newBalance });
+    const withdrawalId = result.data.id;
+
+    // IMMEDIATELY deduct balance and lock funds (will be refunded if rejected)
+    const debitResult = await debitWallet(
+      userId,
+      amount,
+      TRANSACTION_TYPES.WITHDRAWAL_REQUEST,
+      withdrawalId,
+      {
+        withdrawal_id: withdrawalId,
+        payment_method: 'paytm',
+        account_details: accountDetails,
+        status: 'pending'
+      }
+    );
+
+    if (!debitResult.success) {
+      // Rollback withdrawal creation
+      await supabase.from('withdrawals').delete().eq('id', withdrawalId);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to process withdrawal. Please try again.',
+        error: debitResult.error
+      });
+    }
+
+    // Emit real-time wallet update
+    if (global.io) {
+      global.io.to(`user_${userId}`).emit('wallet_updated', {
+        balance: debitResult.newBalance,
+        amount: -amount,
+        type: 'debit',
+        reason: 'withdrawal_request',
+        withdrawalId: withdrawalId
+      });
+    }
 
     res.status(201).json({
       success: true,
-      message: 'Withdrawal request created successfully',
-      data: result.data
+      message: 'Withdrawal request created successfully. Amount has been locked.',
+      data: {
+        ...result.data,
+        newBalance: debitResult.newBalance
+      }
     });
   } catch (error) {
-    console.error('Create withdrawal error:', error);
+    console.error('[Withdrawal] Create withdrawal error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

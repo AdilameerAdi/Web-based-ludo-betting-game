@@ -5,6 +5,7 @@
 
 import { supabase } from '../../config/supabase.js';
 import { COMMISSION_RATE } from '../utils/constants.js';
+import { creditWallet, debitWallet, isTransactionProcessed, TRANSACTION_TYPES } from '../../services/walletService.js';
 
 /**
  * Save game state to database
@@ -202,30 +203,42 @@ export async function processWinnerPayout(state) {
 
   try {
     const winnerId = state.winner.odId;
+    const loser = state.players.find(p => p.odId !== winnerId);
+    const loserId = loser?.odId || null;
     const prizeAmount = state.prizePool;
+    const betAmount = state.betAmount;
 
-    // Get current balance
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('balance')
-      .eq('id', winnerId)
-      .single();
+    // Credit winner with prize pool
+    const winnerCredit = await creditWallet(
+      winnerId,
+      prizeAmount,
+      TRANSACTION_TYPES.GAME_WIN,
+      state.gameId,
+      {
+        game_id: state.gameId,
+        table_id: state.tableId,
+        bet_amount: betAmount,
+        commission: state.commission,
+        opponent_id: loserId
+      }
+    );
 
-    if (userError) {
-      console.error('Error getting winner balance:', userError);
-      return { success: false, error: userError };
+    if (!winnerCredit.success) {
+      console.error('[Game] Failed to credit winner:', winnerCredit.error);
+      return { success: false, error: winnerCredit.error };
     }
 
-    // Update balance
-    const newBalance = (userData.balance || 0) + prizeAmount;
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ balance: newBalance })
-      .eq('id', winnerId);
-
-    if (updateError) {
-      console.error('Error updating winner balance:', updateError);
-      return { success: false, error: updateError };
+    // Loser's stake was already deducted when game started
+    // Just log the game_bet transaction if not already logged (for audit)
+    if (loserId) {
+      const betLogged = await isTransactionProcessed(state.gameId, TRANSACTION_TYPES.GAME_BET);
+      
+      if (!betLogged) {
+        // Note: We don't debit again, just log for audit
+        // The actual deduction happened when game started
+        // This is just for transaction history
+        console.log(`[Game] Game bet already deducted for loser ${loserId} at game start`);
+      }
     }
 
     // Save game result
@@ -237,10 +250,42 @@ export async function processWinnerPayout(state) {
     // Save final game state
     await saveGameState(state);
 
-    console.log(`Paid ${prizeAmount} to winner ${winnerId}`);
-    return { success: true, prizeAmount, newBalance };
+    // Emit real-time wallet updates
+    if (global.io) {
+      global.io.to(`user_${winnerId}`).emit('wallet_updated', {
+        balance: winnerCredit.newBalance,
+        amount: prizeAmount,
+        type: 'credit',
+        reason: 'game_win',
+        gameId: state.gameId
+      });
+
+      if (loserId) {
+        // Get loser's current balance for update
+        const { getWalletBalance } = await import('../../services/walletService.js');
+        const loserBalance = await getWalletBalance(loserId);
+        if (loserBalance.success) {
+          global.io.to(`user_${loserId}`).emit('wallet_updated', {
+            balance: loserBalance.balance,
+            amount: -betAmount,
+            type: 'debit',
+            reason: 'game_loss',
+            gameId: state.gameId
+          });
+        }
+      }
+    }
+
+    console.log(`[Game] Paid ${prizeAmount} to winner ${winnerId}. New balance: ${winnerCredit.newBalance}`);
+    return { 
+      success: true, 
+      prizeAmount, 
+      newBalance: winnerCredit.newBalance,
+      winnerId,
+      loserId
+    };
   } catch (err) {
-    console.error('Exception processing payout:', err);
+    console.error('[Game] Exception processing payout:', err);
     return { success: false, error: err };
   }
 }

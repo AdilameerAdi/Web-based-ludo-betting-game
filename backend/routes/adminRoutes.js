@@ -14,6 +14,7 @@ import {
   changePassword,
   verifyAdminToken
 } from '../controllers/adminController.js';
+import { getDailyGameReport, getAdminEarnings } from '../controllers/adminReportingController.js';
 
 const router = express.Router();
 
@@ -45,6 +46,10 @@ router.get('/users/:userId', getUserDetails);
 
 // Password
 router.put('/change-password', changePassword);
+
+// Reporting
+router.get('/reports/daily-games', getDailyGameReport);
+router.get('/reports/earnings', getAdminEarnings);
 
 export default router;
 
