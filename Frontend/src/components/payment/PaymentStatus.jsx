@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { userAPI } from '../utils/api';
+import { userAPI } from '../../utils/api';
 
 export default function PaymentStatus({ status, orderId, message, onBack }) {
   const [loading, setLoading] = useState(true);

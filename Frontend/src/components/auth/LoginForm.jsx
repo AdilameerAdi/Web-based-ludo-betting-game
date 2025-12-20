@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import Input from './Input'
-import { authAPI } from '../utils/api'
+import { authAPI } from '../../utils/api'
 
-export default function SignUpForm({ onSignUp, onError }) {
+export default function LoginForm({ onLogin, onError }) {
   const [formData, setFormData] = useState({
     mobile: '',
-    password: '',
-    confirmPassword: ''
+    password: ''
   })
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -17,38 +16,16 @@ export default function SignUpForm({ onSignUp, onError }) {
       ...prev,
       [name]: value
     }))
-    // Clear error when user types
     if (error) setError('')
-  }
-
-  const validateForm = () => {
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters!')
-      return false
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match!')
-      return false
-    }
-    return true
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
-    if (!validateForm()) {
-      return
-    }
-
     setLoading(true)
     setError('')
 
     try {
-      const result = await authAPI.signup(
-        formData.mobile, 
-        formData.password, 
-        formData.confirmPassword
-      )
+      const result = await authAPI.login(formData.mobile, formData.password)
 
       // Store token and user data
       if (result.data.token) {
@@ -56,12 +33,12 @@ export default function SignUpForm({ onSignUp, onError }) {
         localStorage.setItem('user', JSON.stringify(result.data.user))
       }
 
-      // Call onSignUp callback with user data
-      if (onSignUp) {
-        onSignUp(result.data.user, result.data.token)
+      // Call onLogin callback with user data
+      if (onLogin) {
+        onLogin(result.data.user, result.data.token)
       }
     } catch (error) {
-      setError(error.message || 'Sign up failed. Please try again.')
+      setError(error.message || 'Login failed. Please check your credentials.')
       if (onError) {
         onError(error.message)
       }
@@ -89,17 +66,7 @@ export default function SignUpForm({ onSignUp, onError }) {
           name="password"
           value={formData.password}
           onChange={handleInputChange}
-          placeholder="Enter your password (min 6 characters)"
-          required
-        />
-
-        <Input
-          label="Confirm Password"
-          type="password"
-          name="confirmPassword"
-          value={formData.confirmPassword}
-          onChange={handleInputChange}
-          placeholder="Confirm your password"
+          placeholder="Enter your password"
           required
         />
 
@@ -113,9 +80,9 @@ export default function SignUpForm({ onSignUp, onError }) {
       <button
         type="submit"
         disabled={loading}
-        className={`w-full py-2 sm:py-2.5 md:py-3 rounded-lg font-bold text-white text-xs sm:text-sm md:text-base shadow-lg hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 bg-gradient-to-r from-purple-500 via-pink-600 to-rose-600 hover:from-purple-600 hover:via-pink-700 hover:to-rose-700 shrink-0 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`w-full py-2 sm:py-2.5 md:py-3 rounded-lg font-bold text-white text-xs sm:text-sm md:text-base shadow-lg hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 bg-gradient-to-r from-blue-500 via-indigo-600 to-purple-600 hover:from-blue-600 hover:via-indigo-700 hover:to-purple-700 shrink-0 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        {loading ? 'Signing up...' : 'Sign Up'}
+        {loading ? 'Logging in...' : 'Login'}
       </button>
     </form>
   )

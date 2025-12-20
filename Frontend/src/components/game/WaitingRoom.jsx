@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 // eslint-disable-next-line no-unused-vars
-import { userAPI } from '../utils/api';
+import { userAPI } from '../../utils/api';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
@@ -540,9 +540,9 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
                         <button
                           onClick={() => handleJoinTable(table)}
                           disabled={isFull}
-                          className={`w-full py-3 rounded-xl font-bold transition-all ${
+                          className={`w-full py-3 text-red-500  rounded-xl font-bold transition-all ${
                             isFull
-                              ? 'bg-gray-600 text-white cursor-not-allowed'
+                              ? 'bg-gray-600 cursor-not-allowed'
                               : 'bg-gradient-to-r from-cyan-500 to-teal-600 hover:from-cyan-600 hover:to-teal-700 text-white shadow-lg hover:shadow-xl'
                           }`}
                         >

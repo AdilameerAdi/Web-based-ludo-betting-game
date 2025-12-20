@@ -193,7 +193,7 @@ export function registerGameHandlers(io, socket) {
    * Handle join game room
    */
   socket.on('game_join', ({ gameId, odId }) => {
-    console.log(`[Socket] game_join from ${socket.id} for game ${gameId}`);
+    console.log(`[Socket] game_join from ${socket.id} for game ${gameId}, odId: ${odId}`);
 
     // Try to reconnect if this is a returning player
     const result = GameManager.handleReconnect(gameId, odId, socket.id);
@@ -215,11 +215,18 @@ export function registerGameHandlers(io, socket) {
         playerIndex: result.playerIndex
       });
     } else {
-      // Just join the room (new game start)
+      // Just join the room (new game start or initial connection)
       socket.join(`game_${gameId}`);
 
+      // Update socket mapping if game exists and player is in it
       const gameState = GameManager.getGameState(gameId, socket.id);
       if (gameState) {
+        // Ensure socket is properly mapped using the updateSocketMapping function
+        const mappingUpdated = GameManager.updateSocketMapping(gameId, odId, socket.id);
+        if (mappingUpdated) {
+          console.log(`[Socket] Updated socket mapping via game_join for game ${gameId}`);
+        }
+
         socket.emit('game_state_update', {
           gameId,
           gameState

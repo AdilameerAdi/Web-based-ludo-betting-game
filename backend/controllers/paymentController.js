@@ -4,13 +4,13 @@ import { creditWallet, isTransactionProcessed, TRANSACTION_TYPES } from '../serv
 // Paytm Configuration - All values must be set via environment variables
 const PAYTM_MERCHANT_ID = process.env.PAYTM_MERCHANT_ID;
 const PAYTM_MERCHANT_KEY = process.env.PAYTM_MERCHANT_KEY;
-const PAYTM_WEBSITE = process.env.PAYTM_WEBSITE || 'WEBSTAGING';
-const PAYTM_INDUSTRY_TYPE = process.env.PAYTM_INDUSTRY_TYPE || 'Retail';
+const PAYTM_WEBSITE = process.env.PAYTM_WEBSITE || 'DEFAULT';
+const PAYTM_INDUSTRY_TYPE = process.env.PAYTM_INDUSTRY_TYPE || 'Retail109';
 const PAYTM_CHANNEL_ID = process.env.PAYTM_CHANNEL_ID || 'WEB';
 const PAYTM_CALLBACK_URL = process.env.PAYTM_CALLBACK_URL;
 // Paytm payment URL - use /theia/processTransaction for form submissions
-// This is the correct endpoint for Paytm form submissions
-const PAYTM_PAYMENT_URL = process.env.PAYTM_PAYMENT_URL || 'https://securegw-stage.paytm.in/theia/processTransaction';
+// Production URL for Paytm payment gateway
+const PAYTM_PAYMENT_URL = process.env.PAYTM_PAYMENT_URL || 'https://securegw.paytm.in/theia/processTransaction';
 
 // Validate required Paytm environment variables
 if (!PAYTM_MERCHANT_ID || !PAYTM_MERCHANT_KEY || !PAYTM_CALLBACK_URL) {
@@ -28,7 +28,7 @@ if (PAYTM_PAYMENT_URL.includes(WRONG_URL_PATTERN)) {
   console.error('❌ [Payment] ERROR: Wrong Paytm URL detected!');
   console.error('❌ [Payment] Current URL:', PAYTM_PAYMENT_URL);
   console.error('❌ [Payment] This URL causes 503 errors. Please update your .env file:');
-  console.error('❌ [Payment] Change PAYTM_PAYMENT_URL to: https://securegw-stage.paytm.in/theia/processTransaction');
+  console.error('❌ [Payment] Change PAYTM_PAYMENT_URL to: https://securegw.paytm.in/theia/processTransaction');
   console.error('❌ [Payment] Then restart your server.');
 }
 

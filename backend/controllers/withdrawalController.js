@@ -31,14 +31,6 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
-    // Paytm-only validation
-    if (paymentMethod.toLowerCase() !== 'paytm') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only Paytm withdrawal is supported'
-      });
-    }
-
     if (amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -81,7 +73,7 @@ export const createWithdrawal = async (req, res) => {
     const result = await Withdrawal.create({
       userId,
       amount,
-      paymentMethod: 'paytm', // Force Paytm
+      paymentMethod: paymentMethod.toLowerCase(), // Use selected payment method
       accountDetails
     });
 
@@ -103,7 +95,7 @@ export const createWithdrawal = async (req, res) => {
       withdrawalId,
       {
         withdrawal_id: withdrawalId,
-        payment_method: 'paytm',
+        payment_method: paymentMethod.toLowerCase(),
         account_details: accountDetails,
         status: 'pending'
       }

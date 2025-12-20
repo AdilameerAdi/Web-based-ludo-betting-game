@@ -66,7 +66,8 @@ export function createGameState(tableId, players, betAmount) {
 
   // Calculate prize pool
   const totalPool = betAmount * 2;
-  const commission = totalPool * COMMISSION_RATE;
+  // Commission is 20% of table price (bet amount), not total pool
+  const commission = betAmount * COMMISSION_RATE;
   const prizePool = totalPool - commission;
 
   return {

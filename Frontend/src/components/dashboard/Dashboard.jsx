@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import LoginForm from './auth/LoginForm'
-import SignUpForm from './auth/SignUpForm'
-import UserDashboard from './dashboard/UserDashboard'
+import LoginForm from '../auth/LoginForm'
+import SignUpForm from '../auth/SignUpForm'
+import UserDashboard from './UserDashboard'
 
 export default function Dashboard() {
   const [isSignUp, setIsSignUp] = useState(false)

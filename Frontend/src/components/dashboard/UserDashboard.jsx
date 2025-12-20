@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { userAPI } from '../utils/api';
-import DefaultTableSelection from './DefaultTableSelection';
-import LudoGameV2 from './LudoGameV2';
-import CustomTableForm from './CustomTableForm';
-import WaitingRoom from './WaitingRoom';
-import AddFunds from './AddFunds';
-import PaymentStatus from './PaymentStatus';
-import WithdrawFunds from './WithdrawFunds';
-import AdminWithdrawals from './AdminWithdrawals';
+import { userAPI } from '../../utils/api';
+import DefaultTableSelection from '../game/DefaultTableSelection';
+import LudoGameV2 from '../game/LudoGameV2';
+import CustomTableForm from '../game/CustomTableForm';
+import WaitingRoom from '../game/WaitingRoom';
+import AddFunds from '../payment/AddFunds';
+import PaymentStatus from '../payment/PaymentStatus';
+import WithdrawFunds from '../payment/WithdrawFunds';
+import AdminWithdrawals from '../admin/AdminWithdrawals';
 
 export default function UserDashboard({ user, onLogout }) {
   const [profile, setProfile] = useState(null);

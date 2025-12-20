@@ -270,9 +270,9 @@ export const updateWithdrawalStatus = async (req, res) => {
 // Get commission stats
 export const getCommissionStats = async (req, res) => {
   try {
-    // Calculate total commission from game_commissions table
+    // Calculate total commission from game_results table
     const { data, error } = await supabase
-      .from('game_commissions')
+      .from('game_results')
       .select('commission')
       .eq('status', 'completed');
 
@@ -282,7 +282,7 @@ export const getCommissionStats = async (req, res) => {
         return res.json({
           success: true,
           data: { total: 0 },
-          message: 'Commission table not yet created'
+          message: 'Game results table not yet created'
         });
       }
       throw error;
@@ -308,9 +308,10 @@ export const getCommissionStats = async (req, res) => {
 export const getCommissionHistory = async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('game_commissions')
-      .select('*')
+      .from('game_results')
+      .select('id, game_id, table_id, commission, bet_amount, winner_id, created_at, completed_at')
       .eq('status', 'completed')
+      .not('commission', 'is', null)
       .order('created_at', { ascending: false });
 
     // Handle table not existing gracefully
@@ -319,15 +320,27 @@ export const getCommissionHistory = async (req, res) => {
         return res.json({
           success: true,
           data: [],
-          message: 'Commission table not yet created'
+          message: 'Game results table not yet created'
         });
       }
       throw error;
     }
 
+    // Format the data to match expected structure
+    const formattedData = (data || []).map(result => ({
+      id: result.id,
+      game_id: result.game_id,
+      table_id: result.table_id,
+      commission: result.commission,
+      bet_amount: result.bet_amount,
+      winner_id: result.winner_id,
+      created_at: result.created_at,
+      completed_at: result.completed_at
+    }));
+
     res.json({
       success: true,
-      data: data || []
+      data: formattedData
     });
   } catch (error) {
     console.error('Get commission history error:', error);
@@ -598,22 +611,31 @@ export const getDashboardStats = async (req, res) => {
       todayGames: 0
     };
 
-    // Get commission stats
+    // Get commission stats from game_results table
     try {
-      const { data } = await supabase
-        .from('game_commissions')
+      const { data, error } = await supabase
+        .from('game_results')
         .select('commission, created_at')
-        .eq('status', 'completed');
+        .eq('status', 'completed')
+        .not('commission', 'is', null);
 
-      if (data) {
+      if (error) {
+        console.error('[Admin] Error fetching commission stats:', error);
+        // If table doesn't exist, that's okay - just log it
+        if (error.code !== '42P01' && !error.message?.includes('does not exist')) {
+          throw error;
+        }
+      } else if (data) {
         const today = new Date().toISOString().split('T')[0];
         stats.totalCommission = data.reduce((sum, item) => sum + (parseFloat(item.commission) || 0), 0);
         stats.todayCommission = data
           .filter(item => item.created_at?.startsWith(today))
           .reduce((sum, item) => sum + (parseFloat(item.commission) || 0), 0);
+        console.log(`[Admin] Commission stats: Total=${stats.totalCommission}, Today=${stats.todayCommission}, Records=${data.length}`);
       }
     } catch (e) {
-      // Commission table may not exist
+      console.error('[Admin] Exception fetching commission stats:', e);
+      // Game results table may not exist - continue with 0 values
     }
 
     // Get add funds stats
@@ -743,6 +765,79 @@ export const changePassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+};
+
+// Change admin username
+export const changeUsername = async (req, res) => {
+  try {
+    const adminId = req.admin.adminId;
+    const { currentPassword, newUsername } = req.body;
+
+    // Validation
+    if (!currentPassword || !newUsername) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new username are required'
+      });
+    }
+
+    if (newUsername.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username must be at least 3 characters'
+      });
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username can only contain letters, numbers, and underscores'
+      });
+    }
+
+    // Get admin
+    const adminResult = await Admin.findById(adminId);
+    if (!adminResult.success) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin not found'
+      });
+    }
+
+    // Verify current password
+    const isPasswordValid = await Admin.verifyPassword(currentPassword, adminResult.data.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Update username
+    const updateResult = await Admin.updateUsername(adminId, newUsername);
+    if (!updateResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: updateResult.error || 'Failed to update username',
+        error: updateResult.error
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Username changed successfully',
+      data: {
+        admin: updateResult.data
+      }
+    });
+  } catch (error) {
+    console.error('Change username error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

@@ -61,7 +61,8 @@ export const TIMING = {
   TURN_WARNING: 10000,           // Warning at 10 seconds remaining
   RECONNECT_TIMEOUT: 20000,      // 20 seconds to reconnect before forfeit
   ACTION_COOLDOWN: 500,          // Minimum time between actions
-  ANIMATION_DELAY: 500           // Delay for animations
+  ANIMATION_DELAY: 500,          // Delay for animations
+  INITIALIZATION_GRACE_PERIOD: 10000  // 10 seconds grace period after game start before disconnect detection
 };
 
 // Dice configuration
@@ -103,4 +104,4 @@ export const EVENT_TYPES = {
 };
 
 // Commission rate for betting
-export const COMMISSION_RATE = 0.05; // 5% commission
+export const COMMISSION_RATE = 0.20; // 20% commission of table price (bet amount)

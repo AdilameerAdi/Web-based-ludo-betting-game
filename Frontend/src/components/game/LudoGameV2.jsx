@@ -130,6 +130,15 @@ const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
       });
       gameIdRef.current = data.gameId;
 
+      // Send game_join to ensure socket mapping is updated
+      if (data.gameId && userId) {
+        gameSocket.emit('game_join', {
+          gameId: data.gameId,
+          odId: userId
+        });
+        console.log('Sent game_join after game_initialized');
+      }
+
       // Initialize the V2 game script with the initialization data
       initializeGameScript(gameSocket, table.id, userId, table.players, data);
     });

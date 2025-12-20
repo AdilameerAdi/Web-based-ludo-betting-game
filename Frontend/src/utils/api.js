@@ -175,6 +175,10 @@ export const adminAPI = {
     return adminApiCall('/admin/change-password', 'PUT', { currentPassword, newPassword });
   },
 
+  changeUsername: async (currentPassword, newUsername) => {
+    return adminApiCall('/admin/change-username', 'PUT', { currentPassword, newUsername });
+  },
+
   getDashboardStats: async () => {
     return adminApiCall('/admin/dashboard-stats', 'GET');
   },

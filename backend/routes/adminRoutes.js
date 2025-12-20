@@ -12,6 +12,7 @@ import {
   getGameHistory,
   getDashboardStats,
   changePassword,
+  changeUsername,
   verifyAdminToken
 } from '../controllers/adminController.js';
 import { getDailyGameReport, getAdminEarnings } from '../controllers/adminReportingController.js';
@@ -46,6 +47,9 @@ router.get('/users/:userId', getUserDetails);
 
 // Password
 router.put('/change-password', changePassword);
+
+// Username
+router.put('/change-username', changeUsername);
 
 // Reporting
 router.get('/reports/daily-games', getDailyGameReport);

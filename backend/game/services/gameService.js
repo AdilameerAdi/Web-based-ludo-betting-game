@@ -305,30 +305,43 @@ export async function recordCommission(state) {
     const loser = state.players.find(p => p.odId !== winnerId);
     const loserId = loser?.odId || null;
 
-    const { error } = await supabase
+    const commissionData = {
+      game_id: state.gameId,
+      table_id: state.tableId,
+      winner_id: winnerId,
+      loser_id: loserId,
+      bet_amount: state.betAmount,
+      total_pot: state.totalPool,
+      commission_rate: COMMISSION_RATE,
+      commission: state.commission,
+      winner_payout: state.prizePool,
+      status: 'completed',
+      created_at: new Date().toISOString()
+    };
+
+    console.log(`[Game] Recording commission for game ${state.gameId}:`, {
+      betAmount: state.betAmount,
+      commission: state.commission,
+      commissionRate: COMMISSION_RATE,
+      totalPool: state.totalPool,
+      winnerPayout: state.prizePool
+    });
+
+    const { data, error } = await supabase
       .from('game_commissions')
-      .insert({
-        game_id: state.gameId,
-        table_id: state.tableId,
-        winner_id: winnerId,
-        loser_id: loserId,
-        bet_amount: state.betAmount,
-        total_pot: state.totalPool,
-        commission_rate: COMMISSION_RATE,
-        commission: state.commission,
-        winner_payout: state.prizePool,
-        status: 'completed',
-        created_at: new Date().toISOString()
-      });
+      .insert(commissionData)
+      .select();
 
     if (error) {
-      console.error('Error recording commission:', error);
+      console.error('[Game] Error recording commission:', error);
+      console.error('[Game] Commission data that failed:', commissionData);
       return { success: false, error };
     }
 
-    return { success: true };
+    console.log(`[Game] Commission recorded successfully for game ${state.gameId}: ₹${state.commission}`);
+    return { success: true, data };
   } catch (err) {
-    console.error('Exception recording commission:', err);
+    console.error('[Game] Exception recording commission:', err);
     return { success: false, error: err };
   }
 }

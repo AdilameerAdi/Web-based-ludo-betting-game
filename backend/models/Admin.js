@@ -69,6 +69,35 @@ export class Admin {
     }
   }
 
+  // Update admin username
+  static async updateUsername(id, newUsername) {
+    try {
+      // Check if username already exists
+      const existingAdmin = await this.findByUsername(newUsername);
+      if (existingAdmin.success && existingAdmin.data.id !== id) {
+        return { success: false, error: 'Username already exists' };
+      }
+
+      const { data, error } = await supabase
+        .from('admins')
+        .update({ 
+          username: newUsername,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
   // Verify password
   static async verifyPassword(plainPassword, hashedPassword) {
     return await bcrypt.compare(plainPassword, hashedPassword);

@@ -295,6 +295,27 @@ export function handleDisconnect(socketId) {
     return null;
   }
 
+  // Check if player is actually still connected via a different socket
+  // This can happen during Socket.IO reconnection where a new socket is created
+  // but the old socket disconnect event fires
+  if (player.isConnected && player.socketId !== socketId) {
+    console.log(`[GameManager] Ignoring disconnect for player ${player.index} in game ${gameId} - player is connected via different socket (${player.socketId} vs ${socketId})`);
+    // Just remove the old socket mapping
+    socketToGame.delete(socketId);
+    return null;
+  }
+
+  // Check if game is still in grace period (just started)
+  const timeSinceStart = Date.now() - state.startedAt;
+  if (timeSinceStart < TIMING.INITIALIZATION_GRACE_PERIOD) {
+    console.log(`[GameManager] Ignoring disconnect for player ${player.index} in game ${gameId} - game just started (${Math.round(timeSinceStart / 1000)}s ago, grace period: ${TIMING.INITIALIZATION_GRACE_PERIOD / 1000}s)`);
+    // Don't process disconnect during grace period, but still remove socket mapping
+    // The player can reconnect via game_join
+    socketToGame.delete(socketId);
+    // Don't mark as disconnected during grace period
+    return null;
+  }
+
   // Mark player as disconnected
   updatePlayerConnection(state, player.index, false);
 
@@ -307,7 +328,7 @@ export function handleDisconnect(socketId) {
   // Start disconnect timer
   startDisconnectTimer(gameId, player.index);
 
-  console.log(`[GameManager] Player ${player.index} disconnected from game ${gameId}`);
+  console.log(`[GameManager] Player ${player.index} disconnected from game ${gameId} (game running for ${Math.round(timeSinceStart / 1000)}s)`);
 
   return {
     gameId,
@@ -573,6 +594,42 @@ function formatCaptureForClient(capturedTokenId, state) {
   };
 }
 
+/**
+ * Update socket mapping for a player in a game
+ * @param {string} gameId - Game ID
+ * @param {string} odId - User ID
+ * @param {string} newSocketId - New socket ID
+ * @returns {boolean} - Success status
+ */
+export function updateSocketMapping(gameId, odId, newSocketId) {
+  const state = activeGames.get(gameId);
+  if (!state) {
+    return false;
+  }
+
+  const player = state.players.find(p => p.odId === odId);
+  if (!player) {
+    return false;
+  }
+
+  // Remove old socket mapping
+  if (player.socketId && player.socketId !== newSocketId) {
+    socketToGame.delete(player.socketId);
+  }
+
+  // Update player socket
+  player.socketId = newSocketId;
+  player.isConnected = true;
+  player.lastActiveAt = Date.now();
+
+  // Add new socket mapping
+  socketToGame.set(newSocketId, gameId);
+
+  console.log(`[GameManager] Updated socket mapping for player ${player.index} in game ${gameId}: ${player.socketId} -> ${newSocketId}`);
+
+  return true;
+}
+
 // Export for external use
 export default {
   createGame,
@@ -585,5 +642,6 @@ export default {
   handleDisconnect,
   handleReconnect,
   getGameState,
-  cleanupGame
+  cleanupGame,
+  updateSocketMapping
 };
