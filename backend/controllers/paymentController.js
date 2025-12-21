@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import { creditWallet, isTransactionProcessed, TRANSACTION_TYPES } from '../services/walletService.js';
 
 // Get the directory of the current module
@@ -10,19 +11,37 @@ const __dirname = dirname(__filename);
 
 // Load environment variables first (before reading them)
 // Try loading from backend directory (where PM2 runs from) and also from project root
-dotenv.config({ path: join(__dirname, '../.env') });
-dotenv.config({ path: join(__dirname, '../../.env') }); // Fallback to project root
+const backendEnvPath = join(__dirname, '../.env');
+const rootEnvPath = join(__dirname, '../../.env');
+
+// Log which .env files exist
+if (existsSync(backendEnvPath)) {
+  console.log('[Payment] ✅ Found .env file at:', backendEnvPath);
+  dotenv.config({ path: backendEnvPath });
+} else {
+  console.log('[Payment] ⚠️  No .env file found at:', backendEnvPath);
+}
+
+if (existsSync(rootEnvPath)) {
+  console.log('[Payment] ✅ Found .env file at:', rootEnvPath);
+  dotenv.config({ path: rootEnvPath }); // Fallback to project root
+} else {
+  console.log('[Payment] ⚠️  No .env file found at:', rootEnvPath);
+}
 
 // Paytm Configuration - All values must be set via environment variables
-const PAYTM_MERCHANT_ID = process.env.PAYTM_MERCHANT_ID;
-const PAYTM_MERCHANT_KEY = process.env.PAYTM_MERCHANT_KEY;
-const PAYTM_WEBSITE = process.env.PAYTM_WEBSITE || 'DEFAULT';
-const PAYTM_INDUSTRY_TYPE = process.env.PAYTM_INDUSTRY_TYPE || 'Retail109';
-const PAYTM_CHANNEL_ID = process.env.PAYTM_CHANNEL_ID || 'WEB';
-const PAYTM_CALLBACK_URL = process.env.PAYTM_CALLBACK_URL;
+// Strip quotes from environment variables if present (common .env file issue)
+const PAYTM_MERCHANT_ID = (process.env.PAYTM_MERCHANT_ID || '').replace(/^["']|["']$/g, '');
+const PAYTM_MERCHANT_KEY = (process.env.PAYTM_MERCHANT_KEY || '').replace(/^["']|["']$/g, '');
+const PAYTM_WEBSITE = (process.env.PAYTM_WEBSITE || 'DEFAULT').replace(/^["']|["']$/g, '');
+const PAYTM_INDUSTRY_TYPE = (process.env.PAYTM_INDUSTRY_TYPE || 'Retail109').replace(/^["']|["']$/g, '');
+const PAYTM_CHANNEL_ID = (process.env.PAYTM_CHANNEL_ID || 'WEB').replace(/^["']|["']$/g, '');
+const PAYTM_CALLBACK_URL = (process.env.PAYTM_CALLBACK_URL || '').replace(/^["']|["']$/g, '');
 // Paytm payment URL - use /theia/processTransaction for form submissions
 // Production URL for Paytm payment gateway
-const PAYTM_PAYMENT_URL = process.env.PAYTM_PAYMENT_URL || 'https://securegw.paytm.in/theia/processTransaction';
+// Strip quotes and trim whitespace
+let rawPaymentUrl = (process.env.PAYTM_PAYMENT_URL || 'https://securegw.paytm.in/theia/processTransaction').replace(/^["']|["']$/g, '').trim();
+const PAYTM_PAYMENT_URL = rawPaymentUrl;
 
 // Validate required Paytm environment variables
 // Instead of throwing an error that crashes the server, we'll disable payment functionality
@@ -53,6 +72,9 @@ if (!PAYTM_CONFIGURED) {
 
 // Check for wrong URL and warn
 const WRONG_URL_PATTERN = '/merchant-transaction/processTransaction';
+const DUMMY_URL_PATTERNS = ['dummy.com', 'test.com', 'example.com', 'localhost'];
+const isDummyUrl = DUMMY_URL_PATTERNS.some(pattern => PAYTM_PAYMENT_URL.toLowerCase().includes(pattern));
+
 if (PAYTM_PAYMENT_URL.includes(WRONG_URL_PATTERN)) {
   console.error('❌ [Payment] ERROR: Wrong Paytm URL detected!');
   console.error('❌ [Payment] Current URL:', PAYTM_PAYMENT_URL);
@@ -61,13 +83,38 @@ if (PAYTM_PAYMENT_URL.includes(WRONG_URL_PATTERN)) {
   console.error('❌ [Payment] Then restart your server.');
 }
 
-// Log on module load to verify URL
-if (process.env.PAYTM_PAYMENT_URL) {
-  console.log('[Payment] Using PAYTM_PAYMENT_URL from environment:', process.env.PAYTM_PAYMENT_URL);
-} else {
-  console.log('[Payment] Using default PAYTM_PAYMENT_URL:', PAYTM_PAYMENT_URL);
+if (isDummyUrl) {
+  console.error('❌ [Payment] ERROR: Dummy/Test URL detected!');
+  console.error('❌ [Payment] Current URL:', PAYTM_PAYMENT_URL);
+  console.error('❌ [Payment] This is not a valid Paytm payment URL. Please update your .env file:');
+  console.error('❌ [Payment] Change PAYTM_PAYMENT_URL to: https://securegw.paytm.in/theia/processTransaction');
+  console.error('❌ [Payment] For staging/test, use: https://securegw-stage.paytm.in/theia/processTransaction');
+  console.error('❌ [Payment] Then restart your server.');
 }
-console.log('[Payment] Paytm Payment URL configured:', PAYTM_PAYMENT_URL);
+
+// Log on module load to verify URL
+console.log('[Payment] ============================================');
+console.log('[Payment] PAYMENT URL CONFIGURATION CHECK:');
+console.log('[Payment] ============================================');
+console.log('[Payment] Raw process.env.PAYTM_PAYMENT_URL:', process.env.PAYTM_PAYMENT_URL || 'NOT SET');
+if (process.env.PAYTM_PAYMENT_URL) {
+  console.log('[Payment] ✅ Using PAYTM_PAYMENT_URL from environment');
+  console.log('[Payment] 📍 Raw URL (with quotes if any):', JSON.stringify(process.env.PAYTM_PAYMENT_URL));
+  console.log('[Payment] 📍 Cleaned URL (quotes removed):', PAYTM_PAYMENT_URL);
+  console.log('[Payment] 📏 URL Length:', PAYTM_PAYMENT_URL.length);
+  console.log('[Payment] 🔍 Contains paytm.in:', PAYTM_PAYMENT_URL.includes('paytm.in'));
+  console.log('[Payment] 🔍 Contains dummy.com:', PAYTM_PAYMENT_URL.toLowerCase().includes('dummy.com'));
+  
+  // Check if URL has quotes (shouldn't happen after cleaning, but let's verify)
+  if (PAYTM_PAYMENT_URL.includes('"') || PAYTM_PAYMENT_URL.includes("'")) {
+    console.error('[Payment] ❌ WARNING: URL still contains quotes after cleaning!');
+  }
+} else {
+  console.log('[Payment] ⚠️  PAYTM_PAYMENT_URL not found in environment, using default');
+  console.log('[Payment] 📍 Default URL:', PAYTM_PAYMENT_URL);
+}
+console.log('[Payment] 📍 Final PAYTM_PAYMENT_URL value:', PAYTM_PAYMENT_URL);
+console.log('[Payment] ============================================');
 
 // Generate Paytm checksum (SHA256)
 function generateChecksum(params, key) {
@@ -195,10 +242,23 @@ export const initiatePayment = async (req, res) => {
       userId,
       merchantId: PAYTM_MERCHANT_ID,
       paymentUrl: PAYTM_PAYMENT_URL,
+      paymentUrlLength: PAYTM_PAYMENT_URL.length,
+      paymentUrlFromEnv: process.env.PAYTM_PAYMENT_URL,
       callbackUrl: PAYTM_CALLBACK_URL,
       checksumLength: checksum.length,
       paramsCount: Object.keys(params).length
     });
+    
+    // Extra validation - log the actual URL being sent
+    console.log('[Payment] 🔍 DEBUG: Actual payment URL being sent to client:', PAYTM_PAYMENT_URL);
+    if (PAYTM_PAYMENT_URL.includes('dummy.com')) {
+      console.error('[Payment] ❌ CRITICAL: dummy.com detected in payment URL!');
+      console.error('[Payment] ❌ This should not happen if .env is correct.');
+      console.error('[Payment] ❌ Please check:');
+      console.error('[Payment] ❌ 1. Is the server restarted after .env change?');
+      console.error('[Payment] ❌ 2. Is the .env file in the correct location?');
+      console.error('[Payment] ❌ 3. Are there multiple .env files?');
+    }
     
     // Log params (without sensitive data) for debugging
     console.log('[Payment] Payment params:', {
@@ -212,6 +272,28 @@ export const initiatePayment = async (req, res) => {
       CHECKSUMHASH: params.CHECKSUMHASH ? 'present' : 'missing'
     });
 
+    // Validate payment URL before sending response
+    const DUMMY_URL_PATTERNS = ['dummy.com', 'test.com', 'example.com'];
+    const isDummyUrl = DUMMY_URL_PATTERNS.some(pattern => PAYTM_PAYMENT_URL.toLowerCase().includes(pattern));
+    
+    if (isDummyUrl) {
+      console.error('[Payment] ❌ ERROR: Invalid payment URL detected:', PAYTM_PAYMENT_URL);
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway is not properly configured. Please contact administrator.',
+        error: 'Invalid PAYTM_PAYMENT_URL in server configuration. Expected Paytm gateway URL but found dummy/test URL.'
+      });
+    }
+
+    // Validate that URL is a valid Paytm URL
+    if (!PAYTM_PAYMENT_URL.includes('paytm.in') && !PAYTM_PAYMENT_URL.includes('paytm.com')) {
+      console.error('[Payment] ❌ ERROR: Payment URL does not appear to be a valid Paytm URL:', PAYTM_PAYMENT_URL);
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway is not properly configured. Please contact administrator.',
+        error: 'Invalid PAYTM_PAYMENT_URL. URL must be a valid Paytm gateway URL.'
+      });
+    }
 
     res.json({
       success: true,
