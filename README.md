@@ -4,6 +4,20 @@ A full-stack multiplayer Ludo game application with real-time gameplay, payment 
 
 ---
 
+## 📚 **DEPLOYMENT DOCUMENTATION**
+
+**For complete fresh deployment from scratch, including removal of previous deployments, see:**
+👉 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Complete step-by-step deployment guide
+
+The DEPLOYMENT.md file includes:
+- ✅ Complete removal of previous deployment
+- ✅ Fresh server setup from scratch
+- ✅ Detailed step-by-step instructions
+- ✅ Troubleshooting guide
+- ✅ Security checklist
+
+---
+
 ## 🚀 **QUICK DEPLOY: Push Code to Make It Live**
 
 **Already deployed? Just need to update your live site? Follow these steps:**
