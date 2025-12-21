@@ -1,5 +1,17 @@
 import crypto from 'crypto';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { creditWallet, isTransactionProcessed, TRANSACTION_TYPES } from '../services/walletService.js';
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load environment variables first (before reading them)
+// Try loading from backend directory (where PM2 runs from) and also from project root
+dotenv.config({ path: join(__dirname, '../.env') });
+dotenv.config({ path: join(__dirname, '../../.env') }); // Fallback to project root
 
 // Paytm Configuration - All values must be set via environment variables
 const PAYTM_MERCHANT_ID = process.env.PAYTM_MERCHANT_ID;
@@ -13,13 +25,30 @@ const PAYTM_CALLBACK_URL = process.env.PAYTM_CALLBACK_URL;
 const PAYTM_PAYMENT_URL = process.env.PAYTM_PAYMENT_URL || 'https://securegw.paytm.in/theia/processTransaction';
 
 // Validate required Paytm environment variables
-if (!PAYTM_MERCHANT_ID || !PAYTM_MERCHANT_KEY || !PAYTM_CALLBACK_URL) {
-  console.error('❌ [Payment] ERROR: Required Paytm environment variables are missing!');
+// Instead of throwing an error that crashes the server, we'll disable payment functionality
+const PAYTM_CONFIGURED = !!(PAYTM_MERCHANT_ID && PAYTM_MERCHANT_KEY && PAYTM_CALLBACK_URL);
+
+// Debug logging to help diagnose configuration issues
+if (process.env.NODE_ENV === 'production' || process.env.DEBUG_PAYMENT === 'true') {
+  console.log('[Payment] Configuration Debug:');
+  console.log('[Payment] PAYTM_MERCHANT_ID:', PAYTM_MERCHANT_ID ? `${PAYTM_MERCHANT_ID.substring(0, 10)}...` : 'MISSING');
+  console.log('[Payment] PAYTM_MERCHANT_KEY:', PAYTM_MERCHANT_KEY ? `${PAYTM_MERCHANT_KEY.substring(0, 5)}...` : 'MISSING');
+  console.log('[Payment] PAYTM_CALLBACK_URL:', PAYTM_CALLBACK_URL || 'MISSING');
+  console.log('[Payment] PAYTM_CONFIGURED:', PAYTM_CONFIGURED);
+}
+
+if (!PAYTM_CONFIGURED) {
+  console.error('❌ [Payment] WARNING: Required Paytm environment variables are missing!');
   console.error('❌ [Payment] Required: PAYTM_MERCHANT_ID, PAYTM_MERCHANT_KEY, PAYTM_CALLBACK_URL');
   console.error('❌ [Payment] Please set these in your .env file');
+  console.error('❌ [Payment] Payment functionality will be disabled until configuration is complete.');
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('Paytm configuration is incomplete. Cannot start server in production mode.');
+    console.error('❌ [Payment] Server will start, but payment endpoints will return errors.');
   }
+} else {
+  console.log('✅ [Payment] Paytm configuration is complete.');
+  console.log('✅ [Payment] Merchant ID:', PAYTM_MERCHANT_ID);
+  console.log('✅ [Payment] Callback URL:', PAYTM_CALLBACK_URL);
 }
 
 // Check for wrong URL and warn
@@ -75,6 +104,15 @@ function verifyChecksum(params, checksum, key) {
 // Initiate payment
 export const initiatePayment = async (req, res) => {
   try {
+    // Check if Paytm is configured
+    if (!PAYTM_CONFIGURED) {
+      return res.status(503).json({
+        success: false,
+        message: 'Payment service is not configured. Please contact administrator.',
+        error: 'Paytm configuration is incomplete. Required environment variables: PAYTM_MERCHANT_ID, PAYTM_MERCHANT_KEY, PAYTM_CALLBACK_URL'
+      });
+    }
+
     const userId = req.user.userId;
     const { amount } = req.body;
 
@@ -197,6 +235,12 @@ export const initiatePayment = async (req, res) => {
 // Payment callback handler
 export const paymentCallback = async (req, res) => {
   try {
+    // Check if Paytm is configured
+    if (!PAYTM_CONFIGURED) {
+      console.error('[Payment] Callback received but Paytm is not configured');
+      return res.status(503).send('Payment service is not configured');
+    }
+
     const params = req.body;
     const { ORDERID, TXNID, TXNAMOUNT, STATUS, RESPCODE, RESPMSG, BANKTXNID, CHECKSUMHASH } = params;
 

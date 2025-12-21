@@ -2,7 +2,81 @@
 
 A full-stack multiplayer Ludo game application with real-time gameplay, payment integration, wallet system, and admin panel.
 
-## 🚀 Quick Start - VPS Deployment Guide
+---
+
+## 🚀 **QUICK DEPLOY: Push Code to Make It Live**
+
+**Already deployed? Just need to update your live site? Follow these steps:**
+
+### Step 1: Push Your Code to GitHub
+
+On your local machine:
+```bash
+git add .
+git commit -m "Your commit message"
+git push origin main
+```
+
+### Step 2: SSH into Your Server
+
+```bash
+ssh root@your-server-ip
+# Replace your-server-ip with your actual server IP
+```
+
+### Step 3: Pull Latest Code and Deploy
+
+```bash
+# Navigate to project directory
+cd /var/www/ludo-game
+
+# Pull latest code from GitHub
+git pull origin main
+
+# Update backend dependencies (if package.json changed)
+cd backend
+npm install --production
+pm2 restart ludo-backend
+
+# Update frontend dependencies and rebuild (if package.json changed)
+cd ../Frontend
+npm install
+npm run build
+pm2 restart ludo-frontend
+
+# Check status
+cd ..
+pm2 status
+```
+
+### Quick One-Liner (If no dependency changes)
+
+If you only changed code files (not package.json), you can use this faster method:
+
+```bash
+cd /var/www/ludo-game && git pull origin main && cd backend && pm2 restart ludo-backend && cd ../Frontend && npm run build && pm2 restart ludo-frontend && pm2 status
+```
+
+### Verify Deployment
+
+```bash
+# Check if apps are running
+pm2 status
+
+# View logs for any errors
+pm2 logs --lines 50
+
+# Test your website
+# Visit: https://your-domain.com
+```
+
+**That's it! Your changes are now live! 🎉**
+
+---
+
+## 📋 Initial VPS Deployment Guide (First Time Setup)
+
+If this is your first time deploying, follow the complete guide below:
 
 This guide will walk you through deploying the application on your VPS server step by step.
 
@@ -350,24 +424,87 @@ sudo journalctl -u nginx -f
 
 ---
 
-## 🔄 Updating Your Application
+## 🔄 Updating Your Application (Detailed Guide)
 
-When you push new changes to your repository:
+### Full Update Process
+
+When you push new changes to your repository, follow these steps:
+
+```bash
+# 1. Connect to your server
+ssh root@your-server-ip
+
+# 2. Navigate to project directory
+cd /var/www/ludo-game
+
+# 3. Pull latest code from GitHub
+git pull origin main
+
+# 4. Update backend
+cd backend
+npm install --production  # Only if package.json changed
+pm2 restart ludo-backend
+
+# 5. Update frontend
+cd ../Frontend
+npm install  # Only if package.json changed
+npm run build
+pm2 restart ludo-frontend
+
+# 6. Verify deployment
+cd ..
+pm2 status
+pm2 logs --lines 20  # Check for any errors
+```
+
+### Quick Update (Code Changes Only)
+
+If you only changed code files (not dependencies):
+
+```bash
+cd /var/www/ludo-game
+git pull origin main
+cd backend && pm2 restart ludo-backend
+cd ../Frontend && npm run build && pm2 restart ludo-frontend
+pm2 status
+```
+
+### Update with New Dependencies
+
+If you added new npm packages:
 
 ```bash
 cd /var/www/ludo-game
 git pull origin main
 
-# Update backend
+# Backend dependencies
 cd backend
 npm install --production
 pm2 restart ludo-backend
 
-# Update frontend
+# Frontend dependencies
 cd ../Frontend
 npm install
 npm run build
 pm2 restart ludo-frontend
+```
+
+### Troubleshooting Updates
+
+If something goes wrong after updating:
+
+```bash
+# Check logs
+pm2 logs ludo-backend --lines 50
+pm2 logs ludo-frontend --lines 50
+
+# Restart services
+pm2 restart all
+
+# If issues persist, check git status
+cd /var/www/ludo-game
+git status
+git log --oneline -5  # See recent commits
 ```
 
 **Password Required:** 
