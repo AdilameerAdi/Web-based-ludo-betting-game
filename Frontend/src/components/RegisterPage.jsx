@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SignUpForm from './auth/SignUpForm';
 import logoImage from './img/LUDO BATTLE LOGO.png';
@@ -6,14 +6,33 @@ import logoImage from './img/LUDO BATTLE LOGO.png';
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(() => {
-    const user = localStorage.getItem('user');
-    return user ? JSON.parse(user) : null;
+    try {
+      const user = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      if (user && token) {
+        return JSON.parse(user);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+      // Clear corrupted data
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      return null;
+    }
   });
+
+  // Redirect if user is already logged in
+  useEffect(() => {
+    if (currentUser) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [currentUser, navigate]);
 
   const handleSignUp = (user, token) => {
     setCurrentUser(user);
     // Redirect to dashboard after successful signup
-    navigate('/dashboard');
+    navigate('/dashboard', { replace: true });
   };
 
   const handleError = (error) => {
@@ -21,9 +40,8 @@ export default function RegisterPage() {
     console.error('Sign up error:', error);
   };
 
-  // If user is already logged in, redirect to dashboard
+  // If user is already logged in, show nothing (will redirect)
   if (currentUser) {
-    navigate('/dashboard');
     return null;
   }
 

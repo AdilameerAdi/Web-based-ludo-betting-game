@@ -68,10 +68,22 @@ export default function AddFunds({ user, onBack, onSuccess }) {
           amount: result.data.amount
         });
 
+        // Validate payment URL before proceeding
+        const paymentUrl = result.data.paymentUrl;
+        const dummyUrlPatterns = ['dummy.com', 'test.com', 'example.com'];
+        const isDummyUrl = dummyUrlPatterns.some(pattern => paymentUrl.toLowerCase().includes(pattern));
+        
+        if (isDummyUrl || !paymentUrl.includes('paytm.in') && !paymentUrl.includes('paytm.com')) {
+          setLoading(false);
+          setError('Payment gateway is not properly configured. The payment URL appears to be invalid. Please contact support.');
+          console.error('[AddFunds] Invalid payment URL detected:', paymentUrl);
+          return;
+        }
+
         // Create and submit Paytm payment form
         const form = document.createElement('form');
         form.method = 'POST';
-        form.action = result.data.paymentUrl;
+        form.action = paymentUrl;
         form.target = '_self';
         form.id = 'paytm-payment-form';
 

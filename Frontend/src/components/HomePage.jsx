@@ -36,32 +36,49 @@ export default function HomePage() {
       </div>
 
       {/* Header with Logo */}
-      <header className="relative z-10 w-full py-6 sm:py-8 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto relative flex justify-center items-center">
-          {/* Logo - Centered */}
-          <div className="relative group">
-            <div className="absolute -inset-2 bg-gradient-to-r from-yellow-400 via-yellow-500 to-red-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-300"></div>
-            <img 
-              src={logoImage} 
-              alt="Ludo Battle Logo" 
-              className="relative h-20 sm:h-24 md:h-28 object-contain drop-shadow-2xl transform group-hover:scale-105 transition-transform duration-300"
-            />
-          </div>
-          
-          {/* Login and Register Buttons - Top Right */}
-          <div className="absolute right-0 flex gap-2 sm:gap-3 items-center">
-            <button
-              onClick={() => navigate('/login')}
-              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-black text-white font-bold text-4xl sm:text-sm rounded-lg shadow-lg hover:shadow-yellow-500/50 transform hover:scale-105 active:scale-95 transition-all duration-300"
-            >
-              Login
-            </button>
-            <button
-              onClick={() => navigate('/register')}
-              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-black text-white font-bold text-4xl sm:text-sm rounded-lg shadow-lg hover:shadow-red-500/50 transform hover:scale-105 active:scale-95 transition-all duration-300"
-            >
-              Register
-            </button>
+      <header className="relative z-10 w-full py-4 sm:py-6 md:py-8 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto">
+          {/* Mobile Layout: Stack logo and buttons vertically */}
+          <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 md:gap-0">
+            {/* Logo - Centered on mobile, left on desktop */}
+            <div className="flex justify-center md:justify-start">
+              <div className="relative group">
+                <div className="absolute -inset-2 bg-gradient-to-r from-yellow-400 via-yellow-500 to-red-500 rounded-2xl blur opacity-30 group-hover:opacity-50 transition duration-300"></div>
+                <img 
+                  src={logoImage} 
+                  alt="Ludo Battle Logo" 
+                  className="relative h-16 sm:h-20 md:h-24 lg:h-28 object-contain drop-shadow-2xl transform group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+            </div>
+            
+            {/* Login and Register Buttons - Below logo on mobile, top right on desktop */}
+            <div className="flex justify-center md:justify-end gap-2 sm:gap-3 items-center relative z-20">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Login button clicked, navigating to /login');
+                  navigate('/login');
+                }}
+                className="px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 bg-black text-white font-bold text-sm sm:text-base rounded-lg shadow-lg hover:shadow-yellow-500/50 transform hover:scale-105 active:scale-95 transition-all duration-300 whitespace-nowrap cursor-pointer relative z-20"
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Register button clicked, navigating to /register');
+                  navigate('/register');
+                }}
+                className="px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 bg-black text-white font-bold text-sm sm:text-base rounded-lg shadow-lg hover:shadow-red-500/50 transform hover:scale-105 active:scale-95 transition-all duration-300 whitespace-nowrap cursor-pointer relative z-20"
+              >
+                Register
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -118,7 +135,13 @@ export default function HomePage() {
           {/* Login and Register Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center mb-12 sm:mb-16 animate-fadeIn">
             <button
-              onClick={() => navigate('/login')}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Login button clicked (main), navigating to /login');
+                navigate('/login');
+              }}
               className="group relative w-full sm:w-auto px-10 sm:px-14 py-4 sm:py-5 bg-gradient-to-r from-yellow-500 via-yellow-600 to-yellow-700 text-black font-bold text-lg sm:text-xl rounded-2xl shadow-2xl hover:shadow-yellow-500/50 transform hover:scale-110 active:scale-95 transition-all duration-300 overflow-hidden"
             >
               <span className="relative z-10 flex items-center justify-center gap-2">
@@ -128,7 +151,13 @@ export default function HomePage() {
               <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             </button>
             <button
-              onClick={() => navigate('/register')}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Register button clicked (main), navigating to /register');
+                navigate('/register');
+              }}
               className="group relative w-full sm:w-auto px-10 sm:px-14 py-4 sm:py-5 bg-gradient-to-r from-red-600 via-red-700 to-red-800 text-white font-bold text-lg sm:text-xl rounded-2xl shadow-2xl hover:shadow-red-500/50 transform hover:scale-110 active:scale-95 transition-all duration-300 overflow-hidden"
             >
               <span className="relative z-10 flex items-center justify-center gap-2">
