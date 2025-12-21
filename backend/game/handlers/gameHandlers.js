@@ -32,6 +32,95 @@ export function registerGameHandlers(io, socket) {
       return;
     }
 
+    // AUTO-EXECUTE: If only one valid move exists, execute it automatically
+    if (result.autoMove && result.autoMove.tokenId) {
+      console.log(`[Socket] Auto-executing move for token ${result.autoMove.tokenId} (only one valid move)`);
+      
+      // First emit dice result immediately so players can see the dice value
+      io.to(`game_${gameId}`).emit('game_dice_result', {
+        gameId,
+        playerIndex: result.rollingPlayerIndex,
+        diceValue: result.diceValue,
+        frontendDiceValue: result.frontendDiceValue,
+        isThreeSixes: result.isThreeSixes,
+        consecutiveSixes: result.consecutiveSixes,
+        hasValidMoves: result.hasValidMoves,
+        validMoves: result.validMoves.map(m => ({
+          tokenId: m.tokenId,
+          isOpen: m.isOpen,
+          isCapture: m.isCapture,
+          isFinish: m.isFinish
+        })),
+        autoMove: {
+          tokenId: result.autoMove.tokenId,
+          isOpen: result.autoMove.isOpen,
+          isCapture: result.autoMove.isCapture,
+          isFinish: result.autoMove.isFinish
+        },
+        autoExecuted: false, // Will be executed after delay
+        nextPlayerIndex: result.isThreeSixes ? result.nextPlayerIndex : null,
+        gameState: result.gameState
+      });
+      
+      // Wait 2 seconds after dice roll, then execute move after additional 1.5 seconds (total ~3.5 seconds)
+      setTimeout(() => {
+        console.log(`[Socket] Executing auto-move after delay for token ${result.autoMove.tokenId}`);
+        
+        // Execute the move automatically
+        const moveResult = GameManager.moveToken(gameId, socket.id, result.autoMove.tokenId);
+        
+        if (moveResult.success) {
+          // Broadcast move result to all players
+          io.to(`game_${gameId}`).emit('game_move_result', {
+            gameId,
+            move: moveResult.move,
+            captured: moveResult.captured,
+            capturedInfo: moveResult.capturedInfo,
+            finished: moveResult.finished,
+            extraTurn: moveResult.extraTurn,
+            extraTurnReason: moveResult.extraTurnReason,
+            gameState: moveResult.gameState
+          });
+
+          // If game over
+          if (moveResult.gameOver) {
+            io.to(`game_${gameId}`).emit('game_over', {
+              gameId,
+              reason: 'all_finished',
+              winner: moveResult.winner,
+              gameState: moveResult.gameState
+            });
+            setTimeout(() => {
+              GameManager.cleanupGame(gameId);
+            }, 5000);
+            return;
+          }
+
+          // Emit turn change if turn switched
+          if (!moveResult.extraTurn) {
+            io.to(`game_${gameId}`).emit('game_turn_change', {
+              gameId,
+              reason: 'move_complete',
+              currentPlayerIndex: moveResult.nextPlayerIndex,
+              gameState: moveResult.gameState
+            });
+          } else {
+            // Extra turn - still same player but needs to roll again
+            io.to(`game_${gameId}`).emit('game_extra_turn', {
+              gameId,
+              reason: moveResult.extraTurnReason,
+              currentPlayerIndex: moveResult.gameState.turn.currentPlayerIndex,
+              gameState: moveResult.gameState
+            });
+          }
+        } else {
+          console.error(`[Socket] Failed to auto-execute move: ${moveResult.error}`);
+        }
+      }, 1500); // 2 seconds after dice + 1.5 seconds = 3.5 seconds total delay
+      
+      return; // Don't proceed with normal dice result emission
+    }
+
     // Broadcast dice result to all players in the game
     // IMPORTANT: Use rollingPlayerIndex (the player who rolled), NOT currentPlayerIndex
     // (which may have changed if there are no valid moves)
@@ -49,6 +138,13 @@ export function registerGameHandlers(io, socket) {
         isCapture: m.isCapture,
         isFinish: m.isFinish
       })),
+      autoMove: result.autoMove ? {
+        tokenId: result.autoMove.tokenId,
+        isOpen: result.autoMove.isOpen,
+        isCapture: result.autoMove.isCapture,
+        isFinish: result.autoMove.isFinish
+      } : null,
+      autoExecuted: false, // Move was not auto-executed
       nextPlayerIndex: result.isThreeSixes ? result.nextPlayerIndex : null,
       gameState: result.gameState
     });

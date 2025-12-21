@@ -140,6 +140,13 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
               window.initializeSocket(gameSocket, table.id);
             }
             
+            // Initialize chat after a short delay to ensure DOM is ready
+            setTimeout(() => {
+              if (window.ensureChatInitialized) {
+                window.ensureChatInitialized();
+              }
+            }, 1000);
+            
             // Check if game is already started (main is visible or pawns exist)
             const mainVisible = window.$('main').css('display') === 'block';
             const pawnsExist = window.$('.r-pawn1, .y-pawn1').length > 0;
@@ -276,8 +283,153 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
     };
   }, [table]); // Re-run if table changes
 
+  // Initialize chat component when component mounts
+  useEffect(() => {
+    const initChat = () => {
+      if (window.$ && window.ensureChatInitialized) {
+        console.log('Initializing chat component...');
+        // Wait a bit for DOM to be fully ready
+        setTimeout(() => {
+          window.ensureChatInitialized();
+        }, 1000);
+      } else {
+        // Retry if jQuery or function not ready
+        console.log('Chat initialization delayed, retrying...');
+        setTimeout(initChat, 500);
+      }
+    };
+    
+    // Start initialization after a short delay
+    const timer = setTimeout(initChat, 500);
+    
+    return () => clearTimeout(timer);
+  }, []); // Run once on mount
+
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'visible' }}>
+      {/* Refresh Button - Top Left Corner */}
+      <button 
+        id="refresh-page-btn" 
+        onClick={() => window.location.reload()}
+        style={{
+          position: 'fixed',
+          top: '20px',
+          left: '20px',
+          zIndex: 10001,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 20px',
+          backgroundColor: '#4CAF50',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+          transition: 'all 0.3s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.backgroundColor = '#45a049';
+          e.target.style.transform = 'scale(1.05)';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.backgroundColor = '#4CAF50';
+          e.target.style.transform = 'scale(1)';
+        }}
+        title="Refresh Page"
+      >
+        <span style={{
+          display: 'inline-block',
+          width: '20px',
+          height: '20px',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8'%3E%3C/path%3E%3Cpath d='M21 3v5h-5'%3E%3C/path%3E%3Cpath d='M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16'%3E%3C/path%3E%3Cpath d='M3 21v-5h5'%3E%3C/path%3E%3C/svg%3E")`,
+          backgroundSize: 'contain',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center'
+        }}></span>
+        Refresh
+      </button>
+
+      {/* Chat Component - Always visible on both players' screens (outside main container) */}
+      <div id="chat-container" style={{ 
+        position: 'fixed', 
+        bottom: '20px', 
+        right: '20px', 
+        zIndex: 10000,
+        pointerEvents: 'auto'
+      }}>
+        <button id="chat-toggle" style={{ display: 'block', width: 'auto' }}>💬 Chat</button>
+        <div id="chat-panel">
+          <div id="chat-header" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 15px',
+            backgroundColor: '#667eea',
+            color: 'white',
+            borderTopLeftRadius: '15px',
+            borderTopRightRadius: '15px'
+          }}>
+            <span style={{ fontWeight: 'bold', fontSize: '16px' }}>Chat</span>
+            <button 
+              id="chat-close" 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const chatPanel = document.getElementById('chat-panel');
+                if (chatPanel) {
+                  chatPanel.classList.remove('active');
+                }
+                // Also use jQuery if available
+                if (window.$ && window.$('#chat-panel').length) {
+                  window.$('#chat-panel').removeClass('active');
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '20px',
+                fontWeight: 'bold',
+                padding: '0',
+                width: '24px',
+                height: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                e.target.style.transform = 'rotate(90deg)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = 'transparent';
+                e.target.style.transform = 'rotate(0deg)';
+              }}
+              title="Close Chat"
+            >
+              ×
+            </button>
+          </div>
+          <div id="chat-messages"></div>
+          <div id="chat-quick-messages">
+            <button className="chat-quick-btn" data-message="Hi">Hi</button>
+            <button className="chat-quick-btn" data-message="I will kill you">I will kill you</button>
+            <button className="chat-quick-btn" data-message="One more game">One more game</button>
+            <button className="chat-quick-btn" data-message="You will never win">You will never win</button>
+            <button className="chat-quick-btn" data-message="I am pro">I am pro</button>
+            <button className="chat-quick-btn" data-message="Good game">Good game</button>
+            <button className="chat-quick-btn" data-message="Well played">Well played</button>
+            <button className="chat-quick-btn" data-message="Lucky!">Lucky!</button>
+          </div>
+        </div>
+      </div>
+
       {/* Home Container - Hidden if table is provided */}
       <div id="home-container" style={{ display: table ? 'none' : 'block' }}>
         <div id="home">
@@ -594,6 +746,7 @@ const LudoGame = ({ table, onBack, onGameEnd }) => {
         <img src="/images/win3.png" alt="" />
         <img src="/images/wood-Board.jpg" alt="" />
       </div>
+
     </div>
   );
 };

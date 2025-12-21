@@ -245,6 +245,69 @@ const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
       setMessage(`Error: ${data.message}. Please go back and try again.`);
     });
 
+    // Listen for chat messages from other players
+    gameSocket.on('game_chat_message', (data) => {
+      console.log('📨 Received game_chat_message:', data);
+      
+      // Only process messages for this table/game - be more lenient with the check
+      const isForThisGame = 
+        (data.tableId && table && data.tableId === table.id) || 
+        (data.gameId && gameIdRef.current && data.gameId === gameIdRef.current) ||
+        (table && !data.tableId && !data.gameId); // Fallback: if no IDs in message but we have a table
+      
+      if (!isForThisGame) {
+        console.log('⚠️ Message not for this game/table, ignoring', {
+          dataTableId: data.tableId,
+          myTableId: table?.id,
+          dataGameId: data.gameId,
+          myGameId: gameIdRef.current
+        });
+        return;
+      }
+      
+      // Check if message is from current player (sender)
+      let isOwnMessage = false;
+      
+      if (playerInfo) {
+        // Check playerNo (1 for red, 3 for yellow)
+        if (data.playerNo !== undefined && playerInfo.playerNo !== undefined) {
+          if (Number(data.playerNo) === Number(playerInfo.playerNo)) {
+            isOwnMessage = true;
+          }
+        }
+        // Check playerIndex (0 for red, 1 for yellow)
+        if (data.playerIndex !== undefined && playerInfo.index !== undefined) {
+          if (Number(data.playerIndex) === Number(playerInfo.index)) {
+            isOwnMessage = true;
+          }
+        }
+      }
+      
+      console.log('🔍 Chat message check:', {
+        receivedPlayerNo: data.playerNo,
+        receivedPlayerIndex: data.playerIndex,
+        myPlayerNo: playerInfo?.playerNo,
+        myPlayerIndex: playerInfo?.index,
+        isOwnMessage: isOwnMessage,
+        hasPlayerInfo: !!playerInfo,
+        message: data.message
+      });
+      
+      // Only show notification if it's NOT our own message (we're the receiver)
+      if (!isOwnMessage) {
+        console.log('✅ RECEIVER: Showing notification - this is from opponent');
+        // Add message to chat UI
+        if (window.addChatMessage) {
+          window.addChatMessage(data.message, false);
+        }
+        // Show floating notification ONLY on receiver's screen
+        showOpponentMessageNotification(data.message);
+      } else {
+        console.log('❌ SENDER: Skipping notification - this is my own message');
+        // Don't do anything for own messages - sender already added it to chat panel
+      }
+    });
+
     // Debug: Log all incoming events
     gameSocket.onAny((event, ...args) => {
       console.log(`[Socket Event] ${event}:`, args);
@@ -337,10 +400,40 @@ const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
       gameSocket.off('game_state_error');
       gameSocket.off('game_opponent_disconnected');
       gameSocket.off('game_opponent_reconnected');
+      gameSocket.off('game_chat_message');
       gameSocket.offAny();
       gameSocket.disconnect();
     };
   }, [table]);
+
+  // Initialize chat component when game is ready
+  useEffect(() => {
+    // Only initialize chat when playerInfo is available (game has started)
+    if (!playerInfo || !table) return;
+    
+    const initChat = () => {
+      if (window.$ && window.initializeChatV2 && socketRef.current) {
+        console.log('Initializing chat component for V2...');
+        // Wait a bit for DOM to be fully ready
+        setTimeout(() => {
+          window.initializeChatV2(socketRef.current, table.id, playerInfo);
+        }, 500);
+      } else {
+        // Retry if jQuery or function not ready
+        console.log('Chat initialization delayed, retrying...', {
+          hasJQuery: !!window.$,
+          hasFunction: !!window.initializeChatV2,
+          hasSocket: !!socketRef.current
+        });
+        setTimeout(initChat, 500);
+      }
+    };
+    
+    // Start initialization after a short delay
+    const timer = setTimeout(initChat, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [table, playerInfo]); // Re-run when table or playerInfo changes
 
   // Handle leave game (forfeit)
   const handleLeaveGame = () => {
@@ -364,8 +457,188 @@ const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
     setShowLeaveConfirm(false);
   };
 
+  // Show opponent message notification (only for receiver, not sender)
+  const showOpponentMessageNotification = (message) => {
+    console.log('🎯 showOpponentMessageNotification called with message:', message);
+    const notification = document.getElementById('opponent-message-notification');
+    const messageText = document.getElementById('opponent-message-text');
+    
+    console.log('🎯 Notification elements:', {
+      notification: !!notification,
+      messageText: !!messageText
+    });
+    
+    if (notification && messageText) {
+      messageText.textContent = message;
+      
+      // Force visibility with !important via setProperty
+      notification.style.setProperty('display', 'block', 'important');
+      notification.style.setProperty('visibility', 'visible', 'important');
+      notification.style.setProperty('opacity', '1', 'important');
+      notification.style.setProperty('z-index', '10001', 'important');
+      notification.style.setProperty('position', 'fixed', 'important');
+      notification.style.setProperty('top', '10px', 'important');
+      notification.style.setProperty('left', '10px', 'important');
+      
+      // Also ensure inner div is visible
+      const innerDiv = notification.querySelector('div');
+      if (innerDiv) {
+        innerDiv.style.setProperty('display', 'block', 'important');
+        innerDiv.style.setProperty('visibility', 'visible', 'important');
+      }
+      
+      console.log('✅ Notification styles applied with !important');
+      console.log('✅ Computed display:', window.getComputedStyle(notification).display);
+      
+      // Remove any existing timeout
+      if (notification._timeout) {
+        clearTimeout(notification._timeout);
+      }
+      
+      // Hide after 3 seconds with fade out
+      notification._timeout = setTimeout(() => {
+        console.log('⏰ Hiding notification after 3 seconds');
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.3s ease-out';
+        setTimeout(() => {
+          notification.style.display = 'none';
+          notification.style.opacity = '1';
+          notification.style.transition = '';
+        }, 300);
+      }, 3000);
+    } else {
+      console.error('❌ Notification elements not found!', {
+        notification: notification,
+        messageText: messageText
+      });
+    }
+  };
+
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'visible' }}>
+      {/* Refresh Button - Top Left Corner */}
+      <button 
+        id="refresh-page-btn" 
+        onClick={() => window.location.reload()}
+        style={{
+          position: 'fixed',
+          top: '20px',
+          left: '20px',
+          zIndex: 10001,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 20px',
+          backgroundColor: '#4CAF50',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+          transition: 'all 0.3s ease'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.backgroundColor = '#45a049';
+          e.target.style.transform = 'scale(1.05)';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.backgroundColor = '#4CAF50';
+          e.target.style.transform = 'scale(1)';
+        }}
+        title="Refresh Page"
+      >
+        <span style={{
+          display: 'inline-block',
+          width: '20px',
+          height: '20px',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8'%3E%3C/path%3E%3Cpath d='M21 3v5h-5'%3E%3C/path%3E%3Cpath d='M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16'%3E%3C/path%3E%3Cpath d='M3 21v-5h5'%3E%3C/path%3E%3C/svg%3E")`,
+          backgroundSize: 'contain',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center'
+        }}></span>
+        Refresh
+      </button>
+
+      {/* Chat Component - Always visible on both players' screens */}
+      <div id="chat-container" style={{ 
+        position: 'fixed', 
+        bottom: '20px', 
+        right: '20px', 
+        zIndex: 10000,
+        pointerEvents: 'auto'
+      }}>
+        <button id="chat-toggle" style={{ display: 'block', width: 'auto' }}>💬 Chat</button>
+        <div id="chat-panel">
+          <div id="chat-header" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 15px',
+            backgroundColor: '#667eea',
+            color: 'white',
+            borderTopLeftRadius: '15px',
+            borderTopRightRadius: '15px'
+          }}>
+            <span style={{ fontWeight: 'bold', fontSize: '16px' }}>Chat</span>
+            <button 
+              id="chat-close" 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const chatPanel = document.getElementById('chat-panel');
+                if (chatPanel) {
+                  chatPanel.classList.remove('active');
+                }
+                // Also use jQuery if available
+                if (window.$ && window.$('#chat-panel').length) {
+                  window.$('#chat-panel').removeClass('active');
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '20px',
+                fontWeight: 'bold',
+                padding: '0',
+                width: '24px',
+                height: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                e.target.style.transform = 'rotate(90deg)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = 'transparent';
+                e.target.style.transform = 'rotate(0deg)';
+              }}
+              title="Close Chat"
+            >
+              ×
+            </button>
+          </div>
+          <div id="chat-messages"></div>
+          <div id="chat-quick-messages">
+            <button className="chat-quick-btn" data-message="Hi">Hi</button>
+            <button className="chat-quick-btn" data-message="I will kill you">I will kill you</button>
+            <button className="chat-quick-btn" data-message="One more game">One more game</button>
+            <button className="chat-quick-btn" data-message="You will never win">You will never win</button>
+            <button className="chat-quick-btn" data-message="I am pro">I am pro</button>
+            <button className="chat-quick-btn" data-message="Good game">Good game</button>
+            <button className="chat-quick-btn" data-message="Well played">Well played</button>
+            <button className="chat-quick-btn" data-message="Lucky!">Lucky!</button>
+          </div>
+        </div>
+      </div>
+
       {/* Loading/Connecting State */}
       {!playerInfo && (
         <div style={{
@@ -459,6 +732,32 @@ const LudoGameV2 = ({ table, onBack, onGameEnd, onLeave }) => {
           </button>
         </div>
       )}
+
+      {/* Opponent Message Notification - appears on the side (only for receiver) */}
+      <div id="opponent-message-notification" style={{
+        position: 'fixed',
+        top: '10px',
+        left: '10px',
+        zIndex: 10001,
+        display: 'none'
+      }}>
+        <div style={{
+          backgroundColor: 'rgba(102, 126, 234, 0.95)',
+          color: 'white',
+          padding: '15px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          maxWidth: '250px',
+          animation: 'slideInFromLeft 0.3s ease-out',
+          border: '2px solid rgba(255,255,255,0.3)'
+        }}>
+          <div id="opponent-message-text" style={{
+            fontSize: '16px',
+            fontWeight: 'bold',
+            wordWrap: 'break-word'
+          }}></div>
+        </div>
+      </div>
 
       {/* Opponent Disconnect Countdown */}
       {disconnectCountdown !== null && (

@@ -35,6 +35,7 @@ export default function UserDashboard({ user, onLogout }) {
     return null;
   });
   const [balance, setBalance] = useState(0); // Available balance in INR
+  const [winningBalance, setWinningBalance] = useState(0); // Winning balance (withdrawable) in INR
   // eslint-disable-next-line no-unused-vars
   const [createdTableLink, setCreatedTableLink] = useState(null);
   const [paymentStatus, setPaymentStatus] = useState(null);
@@ -64,11 +65,20 @@ export default function UserDashboard({ user, onLogout }) {
         const result = await userAPI.getProfile();
         if (result.success) {
           setProfile(result.data);
-          setBalance(result.data.balance || 0);
+          setBalance(result.data.balance || result.data.available_balance || 0);
+          const winningBal = result.data.winning_balance || result.data.winningBalance || 0;
+          setWinningBalance(winningBal);
+          console.log('[Dashboard] Profile loaded:', {
+            balance: result.data.balance,
+            winning_balance: result.data.winning_balance,
+            winningBalance: result.data.winningBalance,
+            allData: result.data
+          });
           // Check if user is admin
           setIsAdmin(result.data.is_admin === true || result.data.is_admin === 'true');
         }
-      } catch {
+      } catch (error) {
+        console.error('[Dashboard] Error fetching profile:', error);
         // Handle error silently
       } finally {
         setLoading(false);
@@ -114,7 +124,8 @@ export default function UserDashboard({ user, onLogout }) {
         const result = await userAPI.getProfile();
         if (result.success) {
           setProfile(result.data);
-          setBalance(result.data.balance || 0);
+          setBalance(result.data.balance || result.data.available_balance || 0);
+          setWinningBalance(result.data.winning_balance || result.data.winningBalance || 0);
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error);
@@ -138,7 +149,8 @@ export default function UserDashboard({ user, onLogout }) {
         const result = await userAPI.getProfile();
         if (result.success) {
           setProfile(result.data);
-          setBalance(result.data.balance || 0);
+          setBalance(result.data.balance || result.data.available_balance || 0);
+          setWinningBalance(result.data.winning_balance || result.data.winningBalance || 0);
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error);
@@ -176,7 +188,8 @@ export default function UserDashboard({ user, onLogout }) {
         const profileResult = await userAPI.getProfile();
         if (profileResult.success) {
           setProfile(profileResult.data);
-          setBalance(profileResult.data.balance || 0);
+          setBalance(profileResult.data.balance || profileResult.data.available_balance || 0);
+          setWinningBalance(profileResult.data.winning_balance || profileResult.data.winningBalance || 0);
         }
       } catch (error) {
         console.error('Failed to fetch profile:', error);
@@ -251,7 +264,7 @@ export default function UserDashboard({ user, onLogout }) {
 
   // Show withdraw funds
   if (view === 'withdrawFunds') {
-    return <WithdrawFunds user={user || profile} onBack={handleBackToDashboard} onSuccess={handleWithdrawSuccess} />;
+    return <WithdrawFunds user={user || profile} winningBalance={winningBalance} onBack={handleBackToDashboard} onSuccess={handleWithdrawSuccess} />;
   }
 
   // Show admin withdrawals
@@ -320,9 +333,34 @@ export default function UserDashboard({ user, onLogout }) {
 
               {/* Right: Balance and Buttons */}
               <div className="flex flex-col items-end gap-2 sm:gap-3">
-                {/* Available Balance Display */}
-                <div className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 shadow-lg text-xs sm:text-sm`}>
-                  Available Balance: INR {balance}
+                {/* First Line: Available Balance and Add Funds */}
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 shadow-lg text-xs sm:text-sm`}>
+                    Available Balance: INR {balance.toLocaleString()}
+                  </div>
+                  <button
+                    onClick={handleAddFunds}
+                    className="px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 text-xs sm:text-sm"
+                  >
+                    💰 Add Funds
+                  </button>
+                </div>
+
+                {/* Second Line: Winning Balance and Withdraw Funds */}
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-yellow-500 to-orange-500 shadow-lg text-xs sm:text-sm`}>
+                    Winning Balance: INR {winningBalance.toLocaleString()}
+                  </div>
+                  <button
+                    onClick={handleWithdrawFunds}
+                    disabled={winningBalance <= 0}
+                    className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 text-xs sm:text-sm ${
+                      winningBalance <= 0 ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    title={winningBalance <= 0 ? 'No winning balance available for withdrawal' : 'Withdraw Funds'}
+                  >
+                    💸 Withdraw Funds
+                  </button>
                 </div>
 
                 {/* Buttons Row */}
@@ -338,22 +376,6 @@ export default function UserDashboard({ user, onLogout }) {
                     title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
                   >
                     {isDark ? '☀️ Switch to Light Mode' : '🌙 Switch to Dark Mode'}
-                  </button>
-
-                  {/* Add Funds */}
-                  <button
-                    onClick={handleAddFunds}
-                    className="px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 text-xs sm:text-sm"
-                  >
-                    💰 Add
-                  </button>
-
-                  {/* Withdraw Funds */}
-                  <button
-                    onClick={handleWithdrawFunds}
-                    className="px-3 sm:px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 text-xs sm:text-sm"
-                  >
-                    💸 Withdraw
                   </button>
 
                   {/* Admin Panel (only for admins) */}
@@ -400,7 +422,7 @@ export default function UserDashboard({ user, onLogout }) {
                   <span className="text-5xl">🤝</span>
                 </div>
                 <h2 className={`text-2xl font-black mb-2 ${isDark ? 'text-white' : 'text-gray-800'}`}>
-                  Default Table
+                 Start a Game
                 </h2>
                 <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                   Join pre-created betting tables
@@ -462,7 +484,7 @@ export default function UserDashboard({ user, onLogout }) {
                   <span className="text-5xl">🚪</span>
                 </div>
                 <h2 className={`text-2xl font-black mb-2 ${isDark ? 'text-white' : 'text-gray-800'}`}>
-                  Waiting Rooms
+                 Join a Game.
                 </h2>
                 <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                   Browse available betting rooms

@@ -31,22 +31,23 @@ export async function getWalletBalance(userId) {
   try {
     const { data, error } = await supabaseAdmin
       .from('users')
-      .select('balance')
+      .select('balance, winning_balance')
       .eq('id', userId)
       .single();
 
     if (error) {
       console.error('[Wallet] Error getting balance:', error);
-      return { success: false, error, balance: 0 };
+      return { success: false, error, balance: 0, winningBalance: 0 };
     }
 
     return { 
       success: true, 
-      balance: parseFloat(data?.balance || 0) 
+      balance: parseFloat(data?.balance || 0),
+      winningBalance: parseFloat(data?.winning_balance || 0)
     };
   } catch (err) {
     console.error('[Wallet] Exception getting balance:', err);
-    return { success: false, error: err, balance: 0 };
+    return { success: false, error: err, balance: 0, winningBalance: 0 };
   }
 }
 
@@ -65,10 +66,10 @@ export async function creditWallet(userId, amount, type, referenceId, metadata =
   }
 
   try {
-    // Get current balance (with lock)
+    // Get current balance and winning balance (with lock)
     const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
-      .select('balance')
+      .select('balance, winning_balance')
       .eq('id', userId)
       .single();
 
@@ -78,12 +79,30 @@ export async function creditWallet(userId, amount, type, referenceId, metadata =
     }
 
     const currentBalance = parseFloat(userData?.balance || 0);
+    const currentWinningBalance = parseFloat(userData?.winning_balance || 0);
     const newBalance = currentBalance + amount;
 
-    // Update balance
+    // Prepare update object
+    const updateData = { balance: newBalance };
+
+    // If this is a game win, also update winning_balance
+    if (type === TRANSACTION_TYPES.GAME_WIN) {
+      const newWinningBalance = currentWinningBalance + amount;
+      updateData.winning_balance = newWinningBalance;
+      console.log(`[Wallet] Game win detected. Updating winning_balance: ${currentWinningBalance} -> ${newWinningBalance}`);
+    }
+
+    // If this is a withdrawal refund, also update winning_balance (refund goes back to winning_balance)
+    if (type === TRANSACTION_TYPES.WITHDRAWAL_REFUND) {
+      const newWinningBalance = currentWinningBalance + amount;
+      updateData.winning_balance = newWinningBalance;
+      console.log(`[Wallet] Withdrawal refund detected. Updating winning_balance: ${currentWinningBalance} -> ${newWinningBalance}`);
+    }
+
+    // Update balance (and winning_balance if game win)
     const { error: updateError } = await supabaseAdmin
       .from('users')
-      .update({ balance: newBalance })
+      .update(updateData)
       .eq('id', userId);
 
     if (updateError) {
@@ -132,10 +151,10 @@ export async function debitWallet(userId, amount, type, referenceId, metadata = 
   }
 
   try {
-    // Get current balance (with lock)
+    // Get current balance and winning balance (with lock)
     const { data: userData, error: userError } = await supabaseAdmin
       .from('users')
-      .select('balance')
+      .select('balance, winning_balance')
       .eq('id', userId)
       .single();
 
@@ -145,6 +164,7 @@ export async function debitWallet(userId, amount, type, referenceId, metadata = 
     }
 
     const currentBalance = parseFloat(userData?.balance || 0);
+    const currentWinningBalance = parseFloat(userData?.winning_balance || 0);
 
     // Check if balance is sufficient
     if (currentBalance < amount) {
@@ -156,12 +176,34 @@ export async function debitWallet(userId, amount, type, referenceId, metadata = 
       };
     }
 
+    // If this is a withdrawal request, also check winning balance
+    if (type === TRANSACTION_TYPES.WITHDRAWAL_REQUEST) {
+      if (currentWinningBalance < amount) {
+        return { 
+          success: false, 
+          error: 'Insufficient winning balance',
+          currentWinningBalance,
+          requiredAmount: amount
+        };
+      }
+    }
+
     const newBalance = currentBalance - amount;
 
-    // Update balance
+    // Prepare update object
+    const updateData = { balance: newBalance };
+
+    // If this is a withdrawal request, also deduct from winning_balance
+    if (type === TRANSACTION_TYPES.WITHDRAWAL_REQUEST) {
+      const newWinningBalance = currentWinningBalance - amount;
+      updateData.winning_balance = newWinningBalance;
+      console.log(`[Wallet] Withdrawal request detected. Updating winning_balance: ${currentWinningBalance} -> ${newWinningBalance}`);
+    }
+
+    // Update balance (and winning_balance if withdrawal)
     const { error: updateError } = await supabaseAdmin
       .from('users')
-      .update({ balance: newBalance })
+      .update(updateData)
       .eq('id', userId);
 
     if (updateError) {

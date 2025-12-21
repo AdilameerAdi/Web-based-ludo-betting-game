@@ -307,6 +307,9 @@ function nextPlayer() {
     });
   }
   
+  // Animate player's ludo box based on turn
+  animatePlayerTurn(playerNo, isMyTurn);
+  
   // Show "Your turn" message if it's the current player's turn
   if (isMyTurn && currentPlayerNo !== null) {
     showTurnMessage("Your Turn!");
@@ -1440,6 +1443,9 @@ function initializeSocket(socket, tableIdParam) {
         const turnDiceBoxId = getDiceBoxIdForPlayer(data.playerNo);
         const myDiceBoxId = getDiceBoxIdForPlayer(currentPlayerNo);
         
+        // Animate player's ludo box based on turn
+        animatePlayerTurn(data.playerNo, isMyTurn);
+        
         // Update dice UI based on whose turn it is
         if (isMyTurn && myDiceBoxId) {
           // It's my turn - enable my dice
@@ -1463,6 +1469,19 @@ function initializeSocket(socket, tableIdParam) {
         if (turnDiceBoxId && turnDiceBoxId !== myDiceBoxId) {
           $(turnDiceBoxId).removeClass("startDiceRoll");
           $(turnDiceBoxId).css("cursor", "default");
+        }
+      }
+    });
+    
+    // Listen for chat messages from other players
+    gameSocket.on('game_chat_message', (data) => {
+      console.log('Received game_chat_message:', data);
+      if (data.tableId === tableId) {
+        // Check if message is from opponent
+        const isOwnMessage = (data.playerNo === currentPlayerNo);
+        // Add message to chat UI (own messages are already added when sent)
+        if (!isOwnMessage) {
+          addChatMessage(data.message, false);
         }
       }
     });
@@ -1635,6 +1654,8 @@ function getDiceBoxIdForPlayer(playerNum) {
 
 /* start game */
 function startGame() {
+  // Ensure chat is initialized when game starts
+  ensureChatInitialized();
   if (noOfPlayer == 2) {
     setPawn("r", "y");
   } else if (noOfPlayer == 3) {
@@ -1815,6 +1836,11 @@ $("#exitfullscreen").click(function(){
   closeFullscreen();
 });
 
+// Refresh button - reload the page
+$("#refresh-page-btn").click(function(){
+  window.location.reload();
+});
+
 // Function to show turn message
 function showTurnMessage(message) {
   // Remove any existing turn message
@@ -1863,7 +1889,178 @@ if (!document.getElementById('turn-message-style')) {
   document.head.appendChild(style);
 }
 
+// Function to animate player's ludo box when it's their turn
+function animatePlayerTurn(playerNo, isMyTurn) {
+  // Remove animation from all player zones
+  $('.in-area').removeClass('player-turn');
+  
+  // Get the player zone ID based on player number
+  let playerZoneId = null;
+  if (playerNo === 1) {
+    playerZoneId = '#rPlayer';
+  } else if (playerNo === 2) {
+    playerZoneId = '#gPlayer';
+  } else if (playerNo === 3) {
+    playerZoneId = '#yPlayer';
+  } else if (playerNo === 4) {
+    playerZoneId = '#bPlayer';
+  }
+  
+  // Add animation to the current player's zone (only if it's the current user's turn)
+  if (playerZoneId && isMyTurn) {
+    $(playerZoneId).addClass('player-turn');
+  }
+}
+
+// Initialize chat functionality
+function initializeChat() {
+  console.log('Setting up chat event handlers...');
+  
+  // Remove existing handlers to prevent duplicates
+  $('#chat-toggle').off('click.chat');
+  $('.chat-quick-btn').off('click.chat');
+  
+  // Chat toggle
+  $('#chat-toggle').on('click.chat', function() {
+    console.log('Chat toggle clicked');
+    $('#chat-panel').toggleClass('active');
+  });
+  
+  // Chat close button - use event delegation to ensure it works
+  $(document).off('click.chat', '#chat-close').on('click.chat', '#chat-close', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Chat close clicked');
+    $('#chat-panel').removeClass('active');
+  });
+  
+  // Also attach directly if element exists
+  if ($('#chat-close').length > 0) {
+    $('#chat-close').off('click.chatDirect').on('click.chatDirect', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Chat close clicked (direct)');
+      $('#chat-panel').removeClass('active');
+    });
+  }
+  
+  // Quick message buttons
+  $('.chat-quick-btn').on('click.chat', function() {
+    const message = $(this).data('message');
+    console.log('Chat button clicked:', message);
+    if (message) {
+      if (gameSocket && tableId && currentPlayerNo !== null) {
+        // Send chat message via socket
+        console.log('Sending chat message:', message);
+        gameSocket.emit('game_chat_message', {
+          tableId: tableId,
+          playerNo: currentPlayerNo,
+          message: message
+        });
+        
+        // Add message to chat UI immediately
+        addChatMessage(message, true);
+      } else {
+        console.warn('Cannot send chat: socket or tableId not ready', {
+          hasSocket: !!gameSocket,
+          tableId: tableId,
+          currentPlayerNo: currentPlayerNo
+        });
+      }
+    }
+  });
+  
+  console.log('Chat event handlers set up');
+}
+
+// Add chat message to UI
+function addChatMessage(message, isOwn) {
+  const chatMessages = $('#chat-messages');
+  const messageDiv = $('<div>')
+    .addClass('chat-message')
+    .addClass(isOwn ? 'own' : 'opponent')
+    .text(message);
+  
+  chatMessages.append(messageDiv);
+  chatMessages.scrollTop(chatMessages[0].scrollHeight);
+  
+  // Auto-remove after 10 seconds for opponent messages
+  if (!isOwn) {
+    setTimeout(() => {
+      messageDiv.fadeOut(300, function() {
+        $(this).remove();
+      });
+    }, 10000);
+  }
+}
+
+// Initialize chat when DOM is ready or when game starts
+$(document).ready(function() {
+  // Try to initialize chat immediately
+  if ($('#chat-toggle').length > 0) {
+    initializeChat();
+  } else {
+    // If chat elements not ready yet, try again after a short delay
+    setTimeout(function() {
+      if ($('#chat-toggle').length > 0) {
+        initializeChat();
+      }
+    }, 500);
+  }
+});
+
+// Also initialize chat when game starts (in case DOM ready already fired)
+function ensureChatInitialized() {
+  console.log('ensureChatInitialized called');
+  console.log('jQuery available:', typeof $ !== 'undefined');
+  console.log('Chat toggle exists:', $('#chat-toggle').length > 0);
+  
+  // Remove any existing event handlers first to prevent duplicates
+  $('#chat-toggle').off('click.chat');
+  $('#chat-close').off('click.chat');
+  $('.chat-quick-btn').off('click.chat');
+  
+  if ($('#chat-toggle').length > 0) {
+    console.log('Initializing chat component...');
+    // Force visibility
+    $('#chat-container').css({
+      'display': 'block',
+      'visibility': 'visible',
+      'opacity': '1',
+      'z-index': '10000'
+    });
+    $('#chat-toggle').css({
+      'display': 'block',
+      'visibility': 'visible',
+      'opacity': '1'
+    });
+    
+    initializeChat();
+    $('#chat-toggle').data('initialized', true);
+    console.log('Chat component initialized successfully');
+  } else {
+    console.warn('Chat toggle button not found! Retrying...');
+    console.log('Available elements with id:', $('[id*="chat"]').map(function() { return this.id; }).get());
+    // Retry after a delay
+    setTimeout(function() {
+      if ($('#chat-toggle').length > 0) {
+        $('#chat-container').css({
+          'display': 'block',
+          'visibility': 'visible',
+          'opacity': '1'
+        });
+        initializeChat();
+        $('#chat-toggle').data('initialized', true);
+        console.log('Chat component initialized on retry');
+      } else {
+        console.error('Chat toggle still not found after retry!');
+      }
+    }, 1000);
+  }
+}
+
 // Expose functions to window for React component access
 window.initializePlayerAssignment = initializePlayerAssignment;
 window.initializeSocket = initializeSocket;
 window.showDiceOnOtherScreen = showDiceOnOtherScreen;
+window.ensureChatInitialized = ensureChatInitialized;

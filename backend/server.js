@@ -647,6 +647,36 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Game chat message event (works for both legacy and V2 games)
+  socket.on('game_chat_message', ({ tableId, gameId, playerNo, playerIndex, message }) => {
+    console.log(`[CHAT] Chat message: Player ${playerNo || playerIndex} (index: ${playerIndex}) sent "${message}" for table ${tableId || 'N/A'} game ${gameId || 'N/A'}`);
+    
+    const chatData = {
+      tableId: tableId || null,
+      gameId: gameId || null,
+      playerNo: playerNo || null,
+      playerIndex: playerIndex !== undefined ? playerIndex : null,
+      message: message
+    };
+    
+    // Broadcast to table room (legacy games)
+    if (tableId) {
+      console.log(`[CHAT] Broadcasting to table_${tableId}`);
+      io.to(`table_${tableId}`).emit('game_chat_message', chatData);
+    }
+    
+    // Broadcast to game room (V2 games) - includes both playerNo and playerIndex
+    if (gameId) {
+      console.log(`[CHAT] Broadcasting to game_${gameId}`);
+      io.to(`game_${gameId}`).emit('game_chat_message', chatData);
+    }
+    
+    // If both are present, broadcast to both (some games might use both)
+    if (tableId && gameId) {
+      console.log(`[CHAT] Message has both tableId and gameId, broadcasting to both rooms`);
+    }
+  });
+
   // Game pawn open event (legacy)
   socket.on('game_pawn_open', ({ tableId, playerNo, playerName, pawnClass, startPoint, width, height }) => {
     console.log(`[LEGACY] Pawn open: Player ${playerNo} opened ${pawnClass} for table ${tableId}`);

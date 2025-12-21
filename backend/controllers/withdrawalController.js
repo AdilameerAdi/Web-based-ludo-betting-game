@@ -53,7 +53,7 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
-    // Check user balance using wallet service
+    // Check user balance and winning balance using wallet service
     const balanceResult = await getWalletBalance(userId);
     if (!balanceResult.success) {
       return res.status(500).json({
@@ -62,10 +62,19 @@ export const createWithdrawal = async (req, res) => {
       });
     }
 
-    if (balanceResult.balance < amount) {
+    // Users can only withdraw from winning_balance
+    const winningBalance = balanceResult.winningBalance || 0;
+    if (winningBalance < amount) {
       return res.status(400).json({
         success: false,
-        message: 'Insufficient balance'
+        message: `Insufficient winning balance. You can only withdraw up to ₹${winningBalance.toLocaleString()}`
+      });
+    }
+
+    if (winningBalance <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have no winning balance available for withdrawal'
       });
     }
 
@@ -240,13 +249,35 @@ export const updateWithdrawalStatus = async (req, res) => {
 
     const withdrawal = withdrawalResult.data;
 
-    // If rejecting, refund the balance
+    // If rejecting, refund the balance and winning_balance using wallet service
     if (status === 'rejected' && withdrawal.status === 'pending') {
-      const userResult = await User.findById(withdrawal.user_id);
-      if (userResult.success) {
-        const currentBalance = userResult.data.balance || 0;
-        const newBalance = currentBalance + withdrawal.amount;
-        await User.update(withdrawal.user_id, { balance: newBalance });
+      const { creditWallet, TRANSACTION_TYPES } = await import('../services/walletService.js');
+      const refundResult = await creditWallet(
+        withdrawal.user_id,
+        withdrawal.amount,
+        TRANSACTION_TYPES.WITHDRAWAL_REFUND,
+        withdrawalId,
+        {
+          withdrawal_id: withdrawalId,
+          reason: 'admin_rejection'
+        }
+      );
+
+      if (refundResult.success) {
+        console.log(`[Withdrawal] Refunded ${withdrawal.amount} to user ${withdrawal.user_id} for rejected withdrawal`);
+        
+        // Emit real-time wallet update
+        if (global.io) {
+          global.io.to(`user_${withdrawal.user_id}`).emit('wallet_updated', {
+            balance: refundResult.newBalance,
+            amount: withdrawal.amount,
+            type: 'credit',
+            reason: 'withdrawal_refund',
+            withdrawalId: withdrawalId
+          });
+        }
+      } else {
+        console.error('[Withdrawal] Failed to refund withdrawal:', refundResult.error);
       }
     }
 

@@ -104,7 +104,7 @@ export default function SignUpForm({ onSignUp, onError }) {
         />
 
         {error && (
-          <div className="bg-red-50 border-2 border-red-200 text-red-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-semibold animate-shake flex-shrink-0">
+          <div className="bg-red-500/20 border-2 border-red-500/50 text-red-300 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold animate-shake flex-shrink-0 backdrop-blur-sm">
             {error}
           </div>
         )}
@@ -113,9 +113,22 @@ export default function SignUpForm({ onSignUp, onError }) {
       <button
         type="submit"
         disabled={loading}
-        className={`w-full py-2 sm:py-2.5 md:py-3 rounded-lg font-bold text-white text-xs sm:text-sm md:text-base shadow-lg hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 bg-gradient-to-r from-purple-500 via-pink-600 to-rose-600 hover:from-purple-600 hover:via-pink-700 hover:to-rose-700 shrink-0 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`group relative w-full py-3 sm:py-3.5 md:py-4 rounded-xl font-bold text-white text-sm sm:text-base md:text-lg shadow-2xl hover:shadow-red-500/50 transform hover:scale-105 active:scale-95 transition-all duration-300 overflow-hidden bg-gradient-to-r from-red-600 via-red-700 to-red-800 hover:from-red-500 hover:via-red-600 hover:to-red-700 shrink-0 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
-        {loading ? 'Signing up...' : 'Sign Up'}
+        <span className="relative z-10 flex items-center justify-center gap-2">
+          {loading ? (
+            <>
+              <span className="animate-spin">⏳</span>
+              <span>Signing up...</span>
+            </>
+          ) : (
+            <>
+              <span>Sign Up</span>
+              <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+            </>
+          )}
+        </span>
+        <div className="absolute inset-0 bg-gradient-to-r from-red-500 via-red-600 to-red-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
       </button>
     </form>
   )

@@ -141,14 +141,57 @@ function setupSocketListeners() {
       return;
     }
 
-    // Update valid moves highlight
-    if (data.playerIndex === playerIndex && data.hasValidMoves) {
-      highlightValidMoves(data.validMoves);
-    }
+    // Check if this is our turn
+    if (data.playerIndex === playerIndex) {
+      // If no valid moves
+      if (!data.hasValidMoves) {
+        showMessage('No valid moves. Turn passes.');
+        return;
+      }
 
-    // If no valid moves
-    if (!data.hasValidMoves && data.playerIndex === playerIndex) {
-      showMessage('No valid moves. Turn passes.');
+      // If move was auto-executed on server, just show message (move result will come via game_move_result)
+      if (data.autoExecuted) {
+        console.log('[GameV2] Move was auto-executed on server');
+        showMessage('Auto-moving token...');
+        clearHighlights();
+        // The move result will come via game_move_result event, so we just wait
+        return;
+      }
+
+      // AUTO-MOVE: If only one valid move exists, execute it automatically (client-side fallback)
+      if (data.autoMove && data.autoMove.tokenId && !data.autoExecuted) {
+        console.log('[GameV2] Auto-moving token:', data.autoMove.tokenId, 'Only one valid move available');
+        showMessage('Auto-moving token...');
+        
+        // Clear any highlights
+        clearHighlights();
+        
+        // Wait 2 seconds after dice roll, then additional 1-2 seconds before executing move
+        // This gives players time to see the dice result before movement starts
+        setTimeout(() => {
+          gameSocket.emit('game_move_token', { gameId, tokenId: data.autoMove.tokenId });
+          console.log(`[GameV2] Auto-executed move: ${data.autoMove.tokenId}`);
+        }, 1500); // 2 seconds after dice + 1 second = 3 seconds total delay
+        return;
+      }
+
+      // MULTIPLE MOVES: If multiple valid moves exist, highlight them and wait for player selection
+      if (data.hasValidMoves && data.validMoves && data.validMoves.length > 1) {
+        console.log('[GameV2] Multiple valid moves available:', data.validMoves.length);
+        highlightValidMoves(data.validMoves);
+        showMessage(`Select a token to move (${data.validMoves.length} options available)`);
+      } else if (data.hasValidMoves && data.validMoves && data.validMoves.length === 1) {
+        // Fallback: If only one move in validMoves array, auto-move it
+        console.log('[GameV2] Fallback auto-move: Only one move in validMoves array');
+        const singleMove = data.validMoves[0];
+        clearHighlights();
+        showMessage('Auto-moving token...');
+        // Wait 2 seconds after dice roll, then additional 1-2 seconds before executing move
+        setTimeout(() => {
+          gameSocket.emit('game_move_token', { gameId, tokenId: singleMove.tokenId });
+          console.log(`[GameV2] Auto-executed fallback move: ${singleMove.tokenId}`);
+        }, 1500); // 2 seconds after dice + 1 second = 3 seconds total delay
+      }
     }
   });
 
@@ -277,6 +320,11 @@ function setupUI() {
 
   // Set up forfeit button (if exists)
   $('#forfeit').off('click').on('click', handleForfeit);
+
+  // Set up refresh button - reload the page
+  $('#refresh-page-btn').off('click').on('click', function() {
+    window.location.reload();
+  });
 }
 
 // ============ User Actions ============
@@ -826,8 +874,127 @@ function toggleSound() {
   }
 }
 
+// ============ Chat Functionality ============
+
+// Initialize chat functionality for V2
+function initializeChatV2(socket, tableIdParam, playerInfoParam) {
+  console.log('Initializing chat for V2 game...');
+  
+  // Remove existing handlers to prevent duplicates
+  $('#chat-toggle').off('click.chat');
+  $('#chat-close').off('click.chat');
+  $('.chat-quick-btn').off('click.chat');
+  
+  // Force visibility
+  $('#chat-container').css({
+    'display': 'block',
+    'visibility': 'visible',
+    'opacity': '1',
+    'z-index': '10000'
+  });
+  $('#chat-toggle').css({
+    'display': 'block',
+    'visibility': 'visible',
+    'opacity': '1'
+  });
+  
+  // Chat toggle
+  $('#chat-toggle').on('click.chat', function() {
+    console.log('Chat toggle clicked');
+    $('#chat-panel').toggleClass('active');
+  });
+  
+  // Chat close button - use event delegation to ensure it works
+  $(document).off('click.chat', '#chat-close').on('click.chat', '#chat-close', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Chat close clicked');
+    $('#chat-panel').removeClass('active');
+  });
+  
+  // Also attach directly if element exists
+  if ($('#chat-close').length > 0) {
+    $('#chat-close').off('click.chatDirect').on('click.chatDirect', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Chat close clicked (direct)');
+      $('#chat-panel').removeClass('active');
+    });
+  }
+  
+  // Quick message buttons
+  $('.chat-quick-btn').on('click.chat', function() {
+    const message = $(this).data('message');
+    console.log('💬 Chat button clicked:', message);
+    if (message && socket && tableIdParam && playerInfoParam) {
+      // Add message to sender's chat UI immediately (before sending)
+      // This way sender sees it in chat panel but won't trigger notification
+      addChatMessage(message, true);
+      
+      // Send chat message via socket with both playerNo and playerIndex
+      // Make sure both are included so receiver can properly identify sender
+      const chatData = {
+        tableId: tableIdParam,
+        gameId: gameId,
+        playerNo: playerInfoParam.playerNo,
+        playerIndex: playerInfoParam.index,
+        message: message
+      };
+      
+      console.log('📤 SENDER: Sending chat message:', chatData);
+      console.log('📤 Sender info:', {
+        playerNo: playerInfoParam.playerNo,
+        playerIndex: playerInfoParam.index,
+        color: playerInfoParam.color
+      });
+      
+      socket.emit('game_chat_message', chatData);
+      
+      // Note: We don't show notification for sender - they already see it in chat panel
+      // The receiver will get the socket event and show the notification
+    } else {
+      console.warn('⚠️ Cannot send chat: socket or playerInfo not ready', {
+        hasSocket: !!socket,
+        tableId: tableIdParam,
+        playerInfo: playerInfoParam,
+        hasMessage: !!message
+      });
+    }
+  });
+  
+  console.log('Chat initialized for V2 game');
+}
+
+// Add chat message to UI
+function addChatMessage(message, isOwn) {
+  const chatMessages = $('#chat-messages');
+  if (chatMessages.length === 0) {
+    console.warn('Chat messages container not found');
+    return;
+  }
+  
+  const messageDiv = $('<div>')
+    .addClass('chat-message')
+    .addClass(isOwn ? 'own' : 'opponent')
+    .text(message);
+  
+  chatMessages.append(messageDiv);
+  chatMessages.scrollTop(chatMessages[0].scrollHeight);
+  
+  // Auto-remove after 10 seconds for opponent messages
+  if (!isOwn) {
+    setTimeout(() => {
+      messageDiv.fadeOut(300, function() {
+        $(this).remove();
+      });
+    }, 10000);
+  }
+}
+
 // ============ Export for React ============
 window.initializeGameV2 = initializeGameV2;
+window.initializeChatV2 = initializeChatV2;
+window.addChatMessage = addChatMessage;
 window.LudoGameV2 = {
   initialize: initializeGameV2,
   getGameState: () => gameState,

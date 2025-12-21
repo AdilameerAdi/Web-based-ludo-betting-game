@@ -543,7 +543,7 @@ export default function WaitingRoom({ user, onJoinTable, onBack }) {
                           className={`w-full py-3 text-red-500  rounded-xl font-bold transition-all ${
                             isFull
                               ? 'bg-gray-600 cursor-not-allowed'
-                              : 'bg-gradient-to-r from-cyan-500 to-teal-600 hover:from-cyan-600 hover:to-teal-700 text-white shadow-lg hover:shadow-xl'
+                              : 'bg-gradient-to-r from-cyan-500 to-teal-600 hover:from-cyan-600 hover:to-teal-700 text-red-500 shadow-lg hover:shadow-xl'
                           }`}
                         >
                           Join Now

@@ -17,6 +17,11 @@ export const getProfile = async (req, res) => {
     // Remove password from response
     const { password, ...userData } = result.data;
 
+    // Ensure winning_balance is included (default to 0 if not present)
+    if (userData.winning_balance === undefined && userData.winningBalance === undefined) {
+      userData.winning_balance = 0;
+    }
+
     res.json({
       success: true,
       data: userData
