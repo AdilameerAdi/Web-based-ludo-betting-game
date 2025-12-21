@@ -404,7 +404,7 @@ The `ecosystem.config.js` file should already be in your project root. Verify it
 cat ecosystem.config.js
 ```
 
-It should contain configurations for both `ludo-backend` and `ludo-frontend`.
+It should contain configuration for `ludo-backend`. Frontend is served directly by Nginx from the dist folder.
 
 ### 8.3 Start Applications with PM2
 
@@ -430,9 +430,10 @@ pm2 status
 │ id  │ name             │ status  │ restart │ uptime   │
 ├─────┼──────────────────┼─────────┼─────────┼──────────┤
 │ 0   │ ludo-backend     │ online  │ 0       │ 0s       │
-│ 1   │ ludo-frontend    │ online  │ 0       │ 0s       │
 └─────┴──────────────────┴─────────┴─────────┴──────────┘
 ```
+
+**Note:** Frontend is served directly by Nginx from `Frontend/dist` directory, so no separate PM2 process is needed.
 
 ### 8.4 View Logs (Optional)
 
@@ -442,7 +443,9 @@ pm2 logs
 
 # View specific app logs
 pm2 logs ludo-backend
-pm2 logs ludo-frontend
+
+# Frontend is served by Nginx, check Nginx logs:
+sudo tail -f /var/log/nginx/error.log
 ```
 
 ---
@@ -602,7 +605,7 @@ To                         Action      From
 pm2 status
 ```
 
-Both `ludo-backend` and `ludo-frontend` should be **online**.
+`ludo-backend` should be **online**. Frontend is served directly by Nginx from the dist folder.
 
 ### 12.2 Restart Services (If Needed)
 
@@ -689,7 +692,8 @@ sudo netstat -tulpn | grep :443   # HTTPS
 ```bash
 # Check logs
 pm2 logs ludo-backend --lines 50
-pm2 logs ludo-frontend --lines 50
+# Frontend is served by Nginx, check Nginx logs:
+sudo tail -f /var/log/nginx/error.log
 
 # Common issues:
 # 1. Missing environment variables - check .env files
@@ -824,13 +828,14 @@ pm2 status
 # View logs
 pm2 logs                    # All apps
 pm2 logs ludo-backend       # Backend only
-pm2 logs ludo-frontend      # Frontend only
+# Frontend is served by Nginx, check Nginx logs:
+sudo tail -f /var/log/nginx/error.log
 pm2 logs --lines 50         # Last 50 lines
 
 # Restart applications
 pm2 restart all             # All apps
 pm2 restart ludo-backend    # Backend only
-pm2 restart ludo-frontend   # Frontend only
+# Frontend is served by Nginx, rebuild with: cd Frontend && npm run build
 
 # Stop applications
 pm2 stop all
@@ -848,7 +853,8 @@ pm2 save
 
 # View detailed info
 pm2 info ludo-backend
-pm2 info ludo-frontend
+# Frontend is served by Nginx, check Nginx status:
+sudo systemctl status nginx
 ```
 
 ### Nginx Management
@@ -919,7 +925,7 @@ pm2 restart ludo-backend
 cd ../Frontend
 npm install              # Only if package.json changed
 npm run build
-pm2 restart ludo-frontend
+# Frontend is served by Nginx, rebuild with: cd Frontend && npm run build
 
 # Verify
 pm2 status
@@ -1000,9 +1006,37 @@ Your Ludo Game application should now be live at `https://your-domain.com`
 
 ---
 
-## 📞 Support
+## 📞 Support & Troubleshooting
 
-If you encounter issues:
+**For detailed troubleshooting of 404 errors and API issues, see:**
+👉 **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Complete troubleshooting guide
+
+**Common Issues:**
+1. **404 Route Not Found:** Usually means frontend environment variable not set or frontend not rebuilt
+2. **502 Bad Gateway:** Backend not running or Nginx routing issue
+3. **CORS Errors:** Backend FRONTEND_URL not matching actual domain
+
+**Quick Diagnostic:**
+```bash
+# Check if backend is running
+pm2 status
+
+# Test backend directly
+curl http://localhost:5000/api/health
+
+# Test through Nginx
+curl https://your-domain.com/api/health
+
+# Check frontend environment
+cd /var/www/ludo-game/Frontend
+cat .env
+
+# Check backend environment
+cd /var/www/ludo-game/backend
+cat .env
+```
+
+**If you encounter issues:**
 
 1. **Check PM2 logs:** `pm2 logs --lines 50`
 2. **Check Nginx logs:** `sudo tail -f /var/log/nginx/error.log`

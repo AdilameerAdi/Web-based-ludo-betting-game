@@ -6,15 +6,24 @@ A full-stack multiplayer Ludo game application with real-time gameplay, payment 
 
 ## 📚 **DEPLOYMENT DOCUMENTATION**
 
-**For complete fresh deployment from scratch, including removal of previous deployments, see:**
-👉 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Complete step-by-step deployment guide
+**🚀 For complete step-by-step deployment from GitHub to live website (including cleaning VPS first):**
+👉 **[COMPLETE_DEPLOYMENT_GUIDE.md](./COMPLETE_DEPLOYMENT_GUIDE.md)** - **START HERE!** Complete deployment guide from GitHub push to live site
+
+**For detailed deployment instructions and advanced configuration:**
+👉 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Detailed deployment guide with advanced options
 
 The DEPLOYMENT.md file includes:
 - ✅ Complete removal of previous deployment
 - ✅ Fresh server setup from scratch
 - ✅ Detailed step-by-step instructions
-- ✅ Troubleshooting guide
 - ✅ Security checklist
+
+The TROUBLESHOOTING.md file includes:
+- ✅ 404 Route Not Found error solutions
+- ✅ API connection issues
+- ✅ Environment variable configuration
+- ✅ Step-by-step diagnostic procedures
+- ✅ Complete fix procedures
 
 ---
 
@@ -56,7 +65,7 @@ pm2 restart ludo-backend
 cd ../Frontend
 npm install
 npm run build
-pm2 restart ludo-frontend
+# Frontend is served by Nginx, no PM2 restart needed
 
 # Check status
 cd ..
@@ -68,7 +77,7 @@ pm2 status
 If you only changed code files (not package.json), you can use this faster method:
 
 ```bash
-cd /var/www/ludo-game && git pull origin main && cd backend && pm2 restart ludo-backend && cd ../Frontend && npm run build && pm2 restart ludo-frontend && pm2 status
+cd /var/www/ludo-game && git pull origin main && cd backend && pm2 restart ludo-backend && cd ../Frontend && npm run build && pm2 status
 ```
 
 ### Verify Deployment
@@ -402,10 +411,10 @@ sudo systemctl status nginx
 pm2 status                    # Check application status
 pm2 logs                     # View all logs
 pm2 logs ludo-backend        # View backend logs only
-pm2 logs ludo-frontend       # View frontend logs only
+# Frontend is served by Nginx, check Nginx logs instead
 pm2 restart all              # Restart all applications
 pm2 restart ludo-backend     # Restart backend only
-pm2 restart ludo-frontend    # Restart frontend only
+# Frontend is served by Nginx, rebuild with: cd Frontend && npm run build
 pm2 stop all                 # Stop all applications
 pm2 delete all               # Delete all applications
 pm2 monit                    # Monitor resources
@@ -510,7 +519,7 @@ If something goes wrong after updating:
 ```bash
 # Check logs
 pm2 logs ludo-backend --lines 50
-pm2 logs ludo-frontend --lines 50
+# Frontend is served by Nginx, check Nginx logs: sudo tail -f /var/log/nginx/error.log
 
 # Restart services
 pm2 restart all
@@ -561,7 +570,7 @@ Run the SQL migration files from `backend/migrations/` in your Supabase dashboar
 
 ```bash
 pm2 logs ludo-backend
-pm2 logs ludo-frontend
+# Frontend is served by Nginx, check Nginx logs: sudo tail -f /var/log/nginx/error.log
 ```
 
 Check for errors in the logs.
