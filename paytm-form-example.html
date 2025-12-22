@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paytm Payment Form Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #00baf2;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #2196f3;
+        }
+        .warning {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .code-block {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        code {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        button {
+            background: #00baf2;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0099cc;
+        }
+        .form-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Paytm Payment Gateway - Auto-Submitting Form Example</h1>
+        
+        <div class="warning">
+            <strong>⚠️ CRITICAL:</strong> The Paytm URL <code>https://securegw.paytm.in/theia/processTransaction</code> 
+            <strong>MUST NEVER</strong> be opened directly in a browser. It only accepts POST requests from HTML forms.
+        </div>
+
+        <div class="info">
+            <strong>✅ Correct Flow:</strong>
+            <ol>
+                <li>Backend generates Paytm parameters and checksum</li>
+                <li>Frontend receives those parameters</li>
+                <li>Frontend creates a hidden HTML form (method=POST)</li>
+                <li>Frontend auto-submits the form to Paytm</li>
+                <li>User completes payment on Paytm's page</li>
+            </ol>
+        </div>
+
+        <h2>Example: Auto-Submitting Form</h2>
+        <p>Click the button below to simulate the payment flow:</p>
+        
+        <button onclick="simulatePayment()">Simulate Payment (Test)</button>
+        <button onclick="showFormCode()">Show Form Code</button>
+
+        <div id="formCode" style="display: none;">
+            <h3>JavaScript Code:</h3>
+            <div class="code-block">
+                <code>
+function redirectToPaytm(paytmParams) {<br>
+&nbsp;&nbsp;// Remove any existing form<br>
+&nbsp;&nbsp;const existingForm = document.getElementById('paytm-payment-form');<br>
+&nbsp;&nbsp;if (existingForm) existingForm.remove();<br>
+<br>
+&nbsp;&nbsp;// Create hidden HTML form<br>
+&nbsp;&nbsp;const form = document.createElement('form');<br>
+&nbsp;&nbsp;form.method = 'POST'; // MUST be POST<br>
+&nbsp;&nbsp;form.action = 'https://securegw.paytm.in/theia/processTransaction';<br>
+&nbsp;&nbsp;form.target = '_self';<br>
+&nbsp;&nbsp;form.style.display = 'none'; // Hide the form<br>
+&nbsp;&nbsp;form.id = 'paytm-payment-form';<br>
+<br>
+&nbsp;&nbsp;// Add all parameters as hidden inputs<br>
+&nbsp;&nbsp;Object.keys(paytmParams).forEach((key) => {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;const input = document.createElement('input');<br>
+&nbsp;&nbsp;&nbsp;&nbsp;input.type = 'hidden';<br>
+&nbsp;&nbsp;&nbsp;&nbsp;input.name = key;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;input.value = paytmParams[key];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;form.appendChild(input);<br>
+&nbsp;&nbsp;});<br>
+<br>
+&nbsp;&nbsp;// Append to body and auto-submit<br>
+&nbsp;&nbsp;document.body.appendChild(form);<br>
+&nbsp;&nbsp;form.submit(); // This sends POST request to Paytm<br>
+}
+                </code>
+            </div>
+        </div>
+
+        <div class="form-info">
+            <h3>Key Points:</h3>
+            <ul>
+                <li><strong>Form method MUST be POST</strong> - GET requests are rejected</li>
+                <li><strong>Form must be hidden</strong> - Use <code>style.display = 'none'</code></li>
+                <li><strong>All parameters required</strong> - MID, ORDER_ID, TXN_AMOUNT, CHECKSUMHASH, etc.</li>
+                <li><strong>Auto-submit programmatically</strong> - Not via user click on link</li>
+                <li><strong>Never open URL directly</strong> - Always use form POST submission</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function simulatePayment() {
+            // This is a simulation - in real app, you get these from your backend API
+            const paytmParams = {
+                MID: 'YOUR_MERCHANT_ID',
+                WEBSITE: 'DEFAULT',
+                INDUSTRY_TYPE_ID: 'Retail109',
+                CHANNEL_ID: 'WEB',
+                ORDER_ID: 'ORDER_' + Date.now(),
+                CUST_ID: 'USER123',
+                MOBILE_NO: '9999999999',
+                EMAIL: 'user@example.com',
+                TXN_AMOUNT: '100.00',
+                CALLBACK_URL: 'https://yourdomain.com/api/payments/callback',
+                CHECKSUMHASH: 'GENERATED_CHECKSUM_FROM_BACKEND'
+            };
+
+            // In production, you would get these from your backend:
+            // fetch('/api/payments/initiate', { 
+            //   method: 'POST', 
+            //   body: JSON.stringify({ amount: 100 }) 
+            // })
+            // .then(res => res.json())
+            // .then(data => {
+            //   if (data.success && data.data.params) {
+            //     redirectToPaytm(data.data.params);
+            //   }
+            // });
+
+            alert('In production, this would redirect to Paytm.\n\nFor testing, check the console to see the form that would be created.');
+            redirectToPaytm(paytmParams);
+        }
+
+        function redirectToPaytm(paytmParams) {
+            // Remove any existing form
+            const existingForm = document.getElementById('paytm-payment-form');
+            if (existingForm) {
+                existingForm.remove();
+            }
+
+            // Create hidden HTML form
+            const form = document.createElement('form');
+            form.method = 'POST'; // MUST be POST, not GET
+            form.action = 'https://securegw.paytm.in/theia/processTransaction';
+            form.target = '_self';
+            form.style.display = 'none'; // Hide the form visually
+            form.id = 'paytm-payment-form';
+
+            // Add all parameters as hidden inputs
+            Object.keys(paytmParams).forEach((key) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = paytmParams[key];
+                form.appendChild(input);
+            });
+
+            // Log for debugging
+            console.log('Paytm Form Created:', {
+                method: form.method,
+                action: form.action,
+                params: Object.keys(paytmParams)
+            });
+
+            // Append to body and auto-submit
+            document.body.appendChild(form);
+            
+            // In production, this would redirect to Paytm
+            // For testing, we'll just log it
+            console.log('Form would be submitted now. In production, this redirects to Paytm.');
+            console.log('Form element:', form);
+            
+            // Uncomment the line below to actually submit (only in production with real credentials)
+            // form.submit();
+        }
+
+        function showFormCode() {
+            const codeDiv = document.getElementById('formCode');
+            codeDiv.style.display = codeDiv.style.display === 'none' ? 'block' : 'none';
+        }
+    </script>
+</body>
+</html>
+

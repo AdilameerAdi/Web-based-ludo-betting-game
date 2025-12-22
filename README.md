@@ -9,21 +9,12 @@ A full-stack multiplayer Ludo game application with real-time gameplay, payment 
 **🚀 For complete step-by-step deployment from GitHub to live website (including cleaning VPS first):**
 👉 **[COMPLETE_DEPLOYMENT_GUIDE.md](./COMPLETE_DEPLOYMENT_GUIDE.md)** - **START HERE!** Complete deployment guide from GitHub push to live site
 
-**For detailed deployment instructions and advanced configuration:**
-👉 **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Detailed deployment guide with advanced options
-
-The DEPLOYMENT.md file includes:
+The deployment guide includes:
 - ✅ Complete removal of previous deployment
 - ✅ Fresh server setup from scratch
 - ✅ Detailed step-by-step instructions
 - ✅ Security checklist
-
-The TROUBLESHOOTING.md file includes:
-- ✅ 404 Route Not Found error solutions
-- ✅ API connection issues
-- ✅ Environment variable configuration
-- ✅ Step-by-step diagnostic procedures
-- ✅ Complete fix procedures
+- ✅ Troubleshooting solutions
 
 ---
 

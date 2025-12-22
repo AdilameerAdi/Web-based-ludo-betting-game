@@ -41,6 +41,23 @@ const PAYTM_CALLBACK_URL = (process.env.PAYTM_CALLBACK_URL || '').replace(/^["']
 // Production URL for Paytm payment gateway
 // Strip quotes and trim whitespace
 let rawPaymentUrl = (process.env.PAYTM_PAYMENT_URL || 'https://securegw.paytm.in/theia/processTransaction').replace(/^["']|["']$/g, '').trim();
+
+// CRITICAL: Ensure URL always uses HTTPS (not HTTP)
+// Paytm requires HTTPS - HTTP will cause Access Denied
+if (rawPaymentUrl.startsWith('http://')) {
+  console.warn('[Payment] WARNING: PAYTM_PAYMENT_URL is HTTP, converting to HTTPS');
+  rawPaymentUrl = rawPaymentUrl.replace('http://', 'https://');
+}
+
+// Ensure URL starts with https://
+if (!rawPaymentUrl.startsWith('https://')) {
+  if (rawPaymentUrl.startsWith('securegw.paytm.in')) {
+    rawPaymentUrl = 'https://' + rawPaymentUrl;
+  } else {
+    console.error('[Payment] ERROR: Invalid PAYTM_PAYMENT_URL. Must be HTTPS Paytm URL.');
+  }
+}
+
 const PAYTM_PAYMENT_URL = rawPaymentUrl;
 
 // Validate required Paytm environment variables
