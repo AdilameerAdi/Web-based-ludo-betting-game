@@ -48,8 +48,18 @@ export default function PaymentStatus({ status, orderId, message, onBack }) {
         <p className="text-gray-600 mb-6">
           {isSuccess 
             ? 'Your funds have been added to your wallet successfully.' 
-            : message || 'Your payment could not be processed. Please try again.'}
+            : (message ? `Payment failed: ${decodeURIComponent(message)}` : 'Your payment could not be processed. Please try again.')}
         </p>
+        
+        {/* Show specific error message for invalid checksum */}
+        {!isSuccess && message && message.includes('Invalid checksum') && (
+          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4 mb-6">
+            <p className="text-sm text-yellow-800 font-semibold">
+              ⚠️ The payment gateway rejected the transaction due to a configuration error. 
+              Please contact support or try again later.
+            </p>
+          </div>
+        )}
 
         {/* Order ID */}
         {orderId && (

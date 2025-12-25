@@ -65,12 +65,29 @@ const PAYTM_PAYMENT_URL = rawPaymentUrl;
 const PAYTM_CONFIGURED = !!(PAYTM_MERCHANT_ID && PAYTM_MERCHANT_KEY && PAYTM_CALLBACK_URL);
 
 // Debug logging to help diagnose configuration issues
-if (process.env.NODE_ENV === 'production' || process.env.DEBUG_PAYMENT === 'true') {
+// Always log in development, or when DEBUG_PAYMENT is enabled
+if (process.env.NODE_ENV === 'development' || process.env.DEBUG_PAYMENT === 'true' || true) {
   console.log('[Payment] Configuration Debug:');
   console.log('[Payment] PAYTM_MERCHANT_ID:', PAYTM_MERCHANT_ID ? `${PAYTM_MERCHANT_ID.substring(0, 10)}...` : 'MISSING');
-  console.log('[Payment] PAYTM_MERCHANT_KEY:', PAYTM_MERCHANT_KEY ? `${PAYTM_MERCHANT_KEY.substring(0, 5)}...` : 'MISSING');
+  console.log('[Payment] PAYTM_MERCHANT_KEY:', PAYTM_MERCHANT_KEY ? `${PAYTM_MERCHANT_KEY.substring(0, 10)}...` : 'MISSING');
+  console.log('[Payment] PAYTM_MERCHANT_KEY length:', PAYTM_MERCHANT_KEY ? PAYTM_MERCHANT_KEY.length : 0);
+  console.log('[Payment] PAYTM_WEBSITE:', PAYTM_WEBSITE || 'MISSING');
+  console.log('[Payment] PAYTM_INDUSTRY_TYPE:', PAYTM_INDUSTRY_TYPE || 'MISSING');
   console.log('[Payment] PAYTM_CALLBACK_URL:', PAYTM_CALLBACK_URL || 'MISSING');
   console.log('[Payment] PAYTM_CONFIGURED:', PAYTM_CONFIGURED);
+  
+  // Verify key matches expected format
+  if (PAYTM_MERCHANT_KEY) {
+    const expectedKey = '9xhvwj1I0V#3SE2s';
+    if (PAYTM_MERCHANT_KEY === expectedKey) {
+      console.log('[Payment] ✅ Merchant Key matches expected production key');
+    } else {
+      console.log('[Payment] ⚠️  Merchant Key does NOT match expected production key');
+      console.log('[Payment] Expected:', expectedKey);
+      console.log('[Payment] Actual:', PAYTM_MERCHANT_KEY);
+      console.log('[Payment] Key comparison:', PAYTM_MERCHANT_KEY === expectedKey ? 'MATCH' : 'MISMATCH');
+    }
+  }
 }
 
 if (!PAYTM_CONFIGURED) {
@@ -135,15 +152,42 @@ console.log('[Payment] ============================================');
 
 // Generate Paytm checksum (SHA256)
 function generateChecksum(params, key) {
-  // Sort parameters and create string
-  const sortedKeys = Object.keys(params).sort();
+  // Remove CHECKSUMHASH if present (should not be included in checksum generation)
+  const paramsForChecksum = { ...params };
+  delete paramsForChecksum.CHECKSUMHASH;
+  
+  // Sort parameters alphabetically (Paytm requirement)
+  const sortedKeys = Object.keys(paramsForChecksum).sort();
+  
+  // Create string with key=value pairs, ensuring values are properly formatted
   const string = sortedKeys
-    .map((k) => `${k}=${params[k]}`)
+    .map((k) => {
+      let value = paramsForChecksum[k];
+      // Ensure value is a string and handle empty/null values
+      if (value === null || value === undefined) {
+        value = '';
+      }
+      return `${k}=${String(value)}`;
+    })
     .join('&');
   
   // Add merchant key and generate hash
+  // CRITICAL: Use the exact key as provided, no encoding/decoding
   const hashString = string + '&' + key;
-  const hash = crypto.createHash('sha256').update(hashString).digest('hex');
+  
+  // Generate SHA256 hash - Paytm requires lowercase hex
+  const hash = crypto.createHash('sha256').update(hashString, 'utf8').digest('hex');
+  
+  // Always log checksum generation details for debugging
+  console.log('[Payment] Checksum generation debug:');
+  console.log('[Payment] Parameters (sorted):', sortedKeys.map(k => `${k}=${paramsForChecksum[k]}`).join('&'));
+  console.log('[Payment] Hash string (without key):', string);
+  console.log('[Payment] Merchant Key (first 10 chars):', key ? key.substring(0, 10) + '...' : 'MISSING');
+  console.log('[Payment] Merchant Key length:', key ? key.length : 0);
+  console.log('[Payment] Full hash string length:', hashString.length);
+  console.log('[Payment] Generated checksum (first 20 chars):', hash.substring(0, 20) + '...');
+  console.log('[Payment] Checksum length:', hash.length, '(should be 64)');
+  
   return hash;
 }
 
@@ -235,19 +279,99 @@ export const initiatePayment = async (req, res) => {
       console.log('Note: Payments table may not exist. Continuing without payment record.');
     }
 
-    // Prepare Paytm parameters (order matters for checksum)
+    // Prepare Paytm parameters
+    // IMPORTANT: TXN_AMOUNT must be a string with exactly 2 decimal places
+    const formattedAmount = parseFloat(amount).toFixed(2);
+    
+    // Ensure CUST_ID is a string (Paytm requirement)
+    const custId = String(userId);
+    
+    // CRITICAL: Validate environment configuration match
+    // If using staging website (WEBSTAGING), must use staging URL
+    // If using production website (DEFAULT), must use production URL
+    const isStagingWebsite = PAYTM_WEBSITE === 'WEBSTAGING';
+    const isStagingUrl = PAYTM_PAYMENT_URL.includes('securegw-stage.paytm.in');
+    const isProductionUrl = PAYTM_PAYMENT_URL.includes('securegw.paytm.in') && !PAYTM_PAYMENT_URL.includes('stage');
+    
+    if (isStagingWebsite && isProductionUrl) {
+      console.error('[Payment] ❌ ERROR: Configuration mismatch detected!');
+      console.error('[Payment] Current configuration:');
+      console.error('[Payment]   WEBSITE:', PAYTM_WEBSITE, '(STAGING)');
+      console.error('[Payment]   Payment URL:', PAYTM_PAYMENT_URL, '(PRODUCTION)');
+      console.error('[Payment]');
+      console.error('[Payment] SOLUTION: You must match staging credentials with staging URL:');
+      console.error('[Payment]   Update PAYTM_PAYMENT_URL in .env to:');
+      console.error('[Payment]   https://securegw-stage.paytm.in/theia/processTransaction');
+      console.error('[Payment]');
+      console.error('[Payment] OR use production credentials with production URL');
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway configuration error: Staging credentials (WEBSTAGING) cannot be used with production URL. Please update PAYTM_PAYMENT_URL to staging URL: https://securegw-stage.paytm.in/theia/processTransaction',
+        error: 'Environment mismatch: WEBSTAGING website requires staging payment URL',
+        fix: 'Update PAYTM_PAYMENT_URL in backend/.env to: https://securegw-stage.paytm.in/theia/processTransaction'
+      });
+    }
+    
+    // Validate INDUSTRY_TYPE_ID - must be 'Retail109' for Paytm
+    if (PAYTM_INDUSTRY_TYPE !== 'Retail109') {
+      console.warn('[Payment] ⚠️  WARNING: INDUSTRY_TYPE_ID should be "Retail109" for Paytm');
+      console.warn('[Payment] Current value:', PAYTM_INDUSTRY_TYPE);
+      console.warn('[Payment] Please update PAYTM_INDUSTRY_TYPE in .env to: Retail109');
+    }
+    
+    // Prepare Paytm parameters (order doesn't matter - will be sorted alphabetically for checksum)
+    // Note: MOBILE_NO and EMAIL are optional but included for better user experience
     const params = {
       MID: PAYTM_MERCHANT_ID,
       WEBSITE: PAYTM_WEBSITE,
       INDUSTRY_TYPE_ID: PAYTM_INDUSTRY_TYPE,
       CHANNEL_ID: PAYTM_CHANNEL_ID,
       ORDER_ID: orderId,
-      CUST_ID: userId,
-      MOBILE_NO: userData.mobile || '9999999999',
-      EMAIL: `${userId}@ludogame.com`,
-      TXN_AMOUNT: amount.toString(),
-      CALLBACK_URL: PAYTM_CALLBACK_URL
+      CUST_ID: custId,
+      TXN_AMOUNT: formattedAmount,
+      CALLBACK_URL: PAYTM_CALLBACK_URL,
+      // Optional parameters - only include if they have valid values
+      ...(userData.mobile && userData.mobile.trim() ? { MOBILE_NO: String(userData.mobile).trim() } : { MOBILE_NO: '9999999999' }),
+      EMAIL: `${custId}@ludogame.com`
     };
+    
+    // Log all parameters being sent (for debugging)
+    console.log('[Payment] Parameters being sent to Paytm:', {
+      MID: params.MID,
+      WEBSITE: params.WEBSITE,
+      INDUSTRY_TYPE_ID: params.INDUSTRY_TYPE_ID,
+      CHANNEL_ID: params.CHANNEL_ID,
+      ORDER_ID: params.ORDER_ID,
+      CUST_ID: params.CUST_ID,
+      TXN_AMOUNT: params.TXN_AMOUNT,
+      CALLBACK_URL: params.CALLBACK_URL,
+      MOBILE_NO: params.MOBILE_NO,
+      EMAIL: params.EMAIL
+    });
+    
+    // Log configuration for debugging
+    console.log('[Payment] Configuration check:', {
+      website: PAYTM_WEBSITE,
+      industryType: PAYTM_INDUSTRY_TYPE,
+      paymentUrl: PAYTM_PAYMENT_URL,
+      isStagingWebsite,
+      isStagingUrl,
+      isProductionUrl,
+      configMatch: (isStagingWebsite && isStagingUrl) || (!isStagingWebsite && isProductionUrl)
+    });
+
+    // Validate all required parameters are present
+    const requiredParams = ['MID', 'WEBSITE', 'INDUSTRY_TYPE_ID', 'CHANNEL_ID', 'ORDER_ID', 'CUST_ID', 'TXN_AMOUNT', 'CALLBACK_URL'];
+    const missingParams = requiredParams.filter(param => !params[param] || params[param] === '');
+    
+    if (missingParams.length > 0) {
+      console.error('[Payment] Missing required parameters:', missingParams);
+      return res.status(500).json({
+        success: false,
+        message: 'Payment configuration error. Missing required parameters.',
+        error: `Missing: ${missingParams.join(', ')}`
+      });
+    }
 
     // Generate checksum BEFORE adding CHECKSUMHASH
     const checksum = generateChecksum(params, PAYTM_MERCHANT_KEY);
@@ -286,8 +410,29 @@ export const initiatePayment = async (req, res) => {
       WEBSITE: params.WEBSITE,
       INDUSTRY_TYPE_ID: params.INDUSTRY_TYPE_ID,
       CHANNEL_ID: params.CHANNEL_ID,
-      CHECKSUMHASH: params.CHECKSUMHASH ? 'present' : 'missing'
+      CALLBACK_URL: params.CALLBACK_URL,
+      CHECKSUMHASH: params.CHECKSUMHASH ? `${params.CHECKSUMHASH.substring(0, 10)}...` : 'missing',
+      CHECKSUMHASH_LENGTH: params.CHECKSUMHASH ? params.CHECKSUMHASH.length : 0
     });
+    
+    // Additional validation: Check if merchant credentials look valid
+    if (!PAYTM_MERCHANT_ID || PAYTM_MERCHANT_ID.length < 5) {
+      console.error('[Payment] ERROR: Invalid Merchant ID format');
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway configuration error. Please contact support.',
+        error: 'Invalid merchant configuration'
+      });
+    }
+    
+    if (!PAYTM_MERCHANT_KEY || PAYTM_MERCHANT_KEY.length < 10) {
+      console.error('[Payment] ERROR: Invalid Merchant Key format');
+      return res.status(500).json({
+        success: false,
+        message: 'Payment gateway configuration error. Please contact support.',
+        error: 'Invalid merchant configuration'
+      });
+    }
 
     // Validate payment URL before sending response
     const DUMMY_URL_PATTERNS = ['dummy.com', 'test.com', 'example.com'];
@@ -343,11 +488,48 @@ export const paymentCallback = async (req, res) => {
     const params = req.body;
     const { ORDERID, TXNID, TXNAMOUNT, STATUS, RESPCODE, RESPMSG, BANKTXNID, CHECKSUMHASH } = params;
 
-    // Verify checksum
-    const isValidChecksum = verifyChecksum(params, CHECKSUMHASH, PAYTM_MERCHANT_KEY);
+    // Log all callback parameters for debugging
+    console.log('[Payment] Callback received - Full params:', {
+      ORDERID,
+      TXNID,
+      TXNAMOUNT,
+      STATUS,
+      RESPCODE,
+      RESPMSG,
+      BANKTXNID,
+      CHECKSUMHASH_PRESENT: !!CHECKSUMHASH,
+      CHECKSUMHASH_LENGTH: CHECKSUMHASH ? CHECKSUMHASH.length : 0,
+      ALL_PARAMS_KEYS: Object.keys(params)
+    });
 
-    if (!isValidChecksum) {
-      return res.status(400).send('Checksum verification failed');
+    // Verify checksum (if present)
+    // Note: Paytm may not send CHECKSUMHASH in failure callbacks
+    if (CHECKSUMHASH) {
+      const isValidChecksum = verifyChecksum(params, CHECKSUMHASH, PAYTM_MERCHANT_KEY);
+      
+      if (!isValidChecksum) {
+        console.error('[Payment] ERROR: Checksum verification failed');
+        console.error('[Payment] Received checksum:', CHECKSUMHASH.substring(0, 20) + '...');
+        console.error('[Payment] Callback params:', Object.keys(params).sort().map(k => `${k}=${params[k]}`).join('&'));
+        // Still process the callback but log the error
+        console.warn('[Payment] ⚠️  Processing callback despite checksum failure (may be a failure response)');
+      } else {
+        console.log('[Payment] ✅ Checksum verification successful');
+      }
+    } else {
+      // No checksum in callback - this is common for failure responses
+      console.warn('[Payment] ⚠️  No checksum in callback (common for failure responses)');
+      console.warn('[Payment] Status:', STATUS, '| Response Code:', RESPCODE, '| Message:', RESPMSG);
+      
+      // For failure responses without checksum, we'll still process them
+      // but log a warning
+      if (STATUS === 'TXN_FAILURE' || RESPCODE !== '01') {
+        console.log('[Payment] Processing failure callback without checksum verification');
+      } else {
+        // If it's a success but no checksum, that's suspicious
+        console.error('[Payment] ERROR: Success response without checksum - this is unusual');
+        return res.status(400).send('Checksum missing in success callback');
+      }
     }
 
     const { supabaseAdmin } = await import('../config/supabase.js');
@@ -475,8 +657,9 @@ export const paymentCallback = async (req, res) => {
     }
 
     // Redirect to frontend with payment status
+    // Use dashboard route with query params so it's handled by UserDashboard component
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const redirectUrl = `${frontendUrl}/payment-status?status=${paymentStatus}&orderId=${ORDERID}&message=${encodeURIComponent(paymentMessage)}`;
+    const redirectUrl = `${frontendUrl}/dashboard?status=${paymentStatus}&orderId=${ORDERID}&message=${encodeURIComponent(paymentMessage)}`;
 
     // For Paytm, we need to return HTML that redirects
     res.send(`

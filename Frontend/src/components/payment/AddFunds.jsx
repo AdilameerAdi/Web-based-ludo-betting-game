@@ -176,13 +176,58 @@ export default function AddFunds({ user, onBack, onSuccess }) {
           return;
         }
         
+        // Final verification before submission
+        console.log('[AddFunds] Final form verification:');
+        console.log('[AddFunds] - Form action:', form.action);
+        console.log('[AddFunds] - Form method:', form.method);
+        console.log('[AddFunds] - Form target:', form.target);
+        console.log('[AddFunds] - Number of inputs:', form.querySelectorAll('input').length);
+        console.log('[AddFunds] - Form in DOM:', form.parentNode !== null);
+        
+        // Verify all required parameters are present
+        const requiredParams = ['MID', 'ORDER_ID', 'TXN_AMOUNT', 'CHECKSUMHASH'];
+        const missingParams = requiredParams.filter(param => {
+          const input = form.querySelector(`input[name="${param}"]`);
+          return !input || !input.value;
+        });
+        
+        if (missingParams.length > 0) {
+          console.error('[AddFunds] Missing required parameters in form:', missingParams);
+          setLoading(false);
+          setError('Payment form is missing required parameters. Please try again.');
+          if (form.parentNode) {
+            form.parentNode.removeChild(form);
+          }
+          return;
+        }
+        
         // Auto-submit the form (this sends POST request to Paytm)
         // User will be redirected to Paytm payment page
         // Note: After form.submit(), user is redirected to Paytm
         // Loading state will persist until user returns via callback URL
         try {
-          console.log('[AddFunds] Submitting form now...');
+          console.log('[AddFunds] Submitting form to Paytm now...');
+          console.log('[AddFunds] Form action:', form.action);
+          console.log('[AddFunds] Form method:', form.method);
+          console.log('[AddFunds] Number of inputs:', form.querySelectorAll('input').length);
+          
+          // Log all form values for debugging
+          const formInputs = form.querySelectorAll('input');
+          console.log('[AddFunds] Form inputs:');
+          formInputs.forEach(input => {
+            if (input.name === 'CHECKSUMHASH') {
+              console.log(`  ${input.name}: ${input.value.substring(0, 20)}...`);
+            } else {
+              console.log(`  ${input.name}: ${input.value}`);
+            }
+          });
+          
+          // Submit immediately - no setTimeout needed
           form.submit();
+          console.log('[AddFunds] Form submitted - page should redirect to Paytm');
+          
+          // Don't set loading to false here - let the redirect happen
+          // The page will navigate away, so state doesn't matter
         } catch (err) {
           console.error('[AddFunds] Form submission error:', err);
           setLoading(false);
